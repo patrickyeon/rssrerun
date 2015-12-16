@@ -11,6 +11,17 @@ type DateSource struct {
     lastDate time.Time
 }
 
+func (d *DateSource) containsDay(day time.Time) bool {
+    // only checks the schedule, not for startdate
+    weekday := day.Weekday()
+    for _, wd := range d.Schedule {
+        if wd == weekday {
+            return true
+        }
+    }
+    return false
+}
+
 func NewDateSource(start time.Time, schedule []time.Weekday) *DateSource {
     d := new(DateSource)
     d.StartDate = time.Date(start.Year(), start.Month(), start.Day(),
@@ -30,12 +41,9 @@ func (d *DateSource) NextDate() (time.Time, error) {
 		d.lastDate = d.lastDate.AddDate(0, 0, 1)
 	}
     for {
-        for _, wd := range d.Schedule {
-            // will eventually work, we've already made sure d.Schedule is not
-            //  empty.
-            if d.lastDate.Weekday() == wd {
-                return d.lastDate, nil
-            }
+        if d.containsDay(d.lastDate) {
+        // will eventually work, we already know d.Schedule is not empty.
+            return d.lastDate, nil
         }
         d.lastDate = d.lastDate.AddDate(0, 0, 1)
     }
@@ -50,14 +58,7 @@ func (d *DateSource) SkipForward(nDays int) {
         } else {
             for {
                 d.lastDate = d.lastDate.AddDate(0, 0, -1)
-                valid := false
-                for _, wd := range d.Schedule {
-                    if d.lastDate.Weekday() == wd {
-                        valid = true
-                        break
-                    }
-                }
-                if valid {
+                if d.containsDay(d.lastDate) {
                     break
                 }
             }
