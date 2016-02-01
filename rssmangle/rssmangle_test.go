@@ -1,12 +1,19 @@
 package rssmangle
 
 import (
+    "errors"
     "strconv"
     "strings"
     "testing"
+    "time"
+    "rss-rerun/datesource"
     "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
 )
+
+func startDate() time.Time {
+    return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
+}
 
 type RSS struct {
     Items []string
@@ -16,13 +23,18 @@ func createRSS() *RSS {
     return new(RSS)
 }
 
-func createAndPopulateRSS(n int) *RSS {
+func createAndPopulateRSS(n int, d time.Time) *RSS {
     if n < 0 {
         return nil
     }
     ret := new(RSS)
-    for i := n; i > 0; i-- {
-        ret.AddPost("<title>post number " + strconv.Itoa(i) + "</title>")
+    for i := n; i >= 1; i-- {
+        pubdate := d.AddDate(0, 0, 7*(i - 1)).Format(time.RFC822)
+        postText := "<title>post number " + strconv.Itoa(i) + "</title>"
+        postText += "<pubDate>" + pubdate + "</pubDate>"
+        postText += "<description>originally published " + pubdate
+        postText += "</description>"
+        ret.AddPost(postText)
     }
     return ret
 }
@@ -40,6 +52,9 @@ func (r *RSS) Text() string {
     return retval
 }
 
+func (r *RSS) Bytes() []byte {
+    return []byte(r.Text())
+}
 
 func nodesAreSameish(na, nb xml.Node) bool {
     nodesDefinedByContent := []xml.NodeType {xml.XML_TEXT_NODE,
@@ -162,9 +177,9 @@ func xmldiff(xmla []byte, xmlb []byte) (bool, error) {
 
 func NoTestIngest(t *testing.T) {
     // temporarily disabled, parsing a feed changes it.
-    rss := createAndPopulateRSS(10)
-    rssb := []byte(rss.Text())
-    feed, err := NewFeed(rssb)
+    rss := createAndPopulateRSS(10, startDate())
+    rssb := rss.Bytes()
+    feed, err := NewFeed(rssb, nil)
     if err != nil {
         t.Error("error parsing feed")
     }
@@ -185,8 +200,8 @@ func NoTestIngest(t *testing.T) {
 }
 
 func TestCompare(t *testing.T) {
-    rss := createAndPopulateRSS(10)
-    feed, err := NewFeed([]byte(rss.Text()))
+    rss := createAndPopulateRSS(10, startDate())
+    feed, err := NewFeed(rss.Bytes(), nil)
     if err != nil {
         t.Error("errored out parsing feed")
     }
@@ -198,7 +213,7 @@ func TestCompare(t *testing.T) {
         t.Error(err)
     }
 
-    diff, err := xmldiff([]byte(rss.Text()), []byte(rss.Text()))
+    diff, err := xmldiff(rss.Bytes(), rss.Bytes())
     if err != nil {
         t.Error("errored out during xmldiff")
     }
@@ -214,7 +229,7 @@ func TestCompare(t *testing.T) {
         t.Error("fb reported as self-dissimilar")
     }
 
-    diff, err = xmldiff([]byte(rss.Text()), fb)
+    diff, err = xmldiff(rss.Bytes(), fb)
     if err != nil {
         t.Error("errored out during real xmldiff")
     }
@@ -224,16 +239,65 @@ func TestCompare(t *testing.T) {
 }
 
 func TestHandleCDATA(t *testing.T) {
-    rss := createAndPopulateRSS(2)
+    rss := createAndPopulateRSS(2, startDate())
     breakText := "<title>pre-CDATA</title><description><![CDATA["
     breakText += "</item><item>this should not be its own item</item>"
     breakText += "]]></description"
     rss.AddPost(breakText)
     rss.AddPost("<title>post-CDATA</title>")
-    feed, _ := NewFeed([]byte(rss.Text()))
+    feed, _ := NewFeed(rss.Bytes(), nil)
 
     if got := len(feed.Items); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d\n", 4, got)
         t.Error(string(feed.Bytes()))
     }
+}
+
+func TestTimeShift(t *testing.T) {
+    sched := []time.Weekday{time.Sunday, time.Tuesday}
+    rss := createAndPopulateRSS(10, startDate())
+    rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+
+    feed, _ := NewFeed(rss.Bytes(), rerun)
+    feed.TimeShift()
+
+    shifted, err := NewFeed(feed.Bytes(), nil)
+    if err != nil {
+        t.Error(err)
+    }
+    if got := len(shifted.Items); got != len(feed.Items) {
+        t.Errorf("expected %d items, got %d\n", len(feed.Items), got)
+    }
+
+    expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+    for i := (len(shifted.Items) - 1); i >= 0; i-- {
+        it := shifted.Items[i]
+        pd, err := pubDate(&it)
+        if err != nil {
+            t.Error(err)
+        } else {
+            date, err := expected.NextDate()
+            if err != nil {
+                t.Error(err)
+            } else if date != pd {
+                t.Error(it.String())
+            }
+        }
+    }
+}
+
+func pubDate(n *xml.Node) (time.Time, error) {
+    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
+    d, err := (*n).Search("pubDate")
+    if err != nil {
+        return zdate, err
+    }
+    if len(d) != 1 {
+        return zdate, errors.New("no pubdate" + string(len(d)))
+    }
+    ret, err := time.Parse(time.RFC822, d[0].Content())
+    if err != nil {
+        return zdate, err
+    }
+    return ret, nil
 }
