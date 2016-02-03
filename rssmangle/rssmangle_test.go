@@ -1,7 +1,6 @@
 package rssmangle
 
 import (
-    "errors"
     "strconv"
     "strings"
     "testing"
@@ -286,18 +285,44 @@ func TestTimeShift(t *testing.T) {
     }
 }
 
-func pubDate(n *xml.Node) (time.Time, error) {
-    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    d, err := (*n).Search("pubDate")
+func TestLatestFive(t *testing.T) {
+    sched := []time.Weekday{time.Sunday, time.Tuesday}
+    rss := createAndPopulateRSS(100, startDate().AddDate(-3, 0, 0))
+    rerun := datesource.NewDateSource(startDate(), sched)
+
+    feed, _ := NewFeed(rss.Bytes(), rerun)
+    now := startDate().AddDate(0, 4, 0)
+    items, err := feed.LatestAt(5, now)
     if err != nil {
-        return zdate, err
+        t.Fatal(err)
     }
-    if len(d) != 1 {
-        return zdate, errors.New("no pubdate" + string(len(d)))
+    if len(items) != 5 {
+        t.Errorf("expected 5 items, got %d\n", len(items))
     }
-    ret, err := time.Parse(time.RFC822, d[0].Content())
+
+    prev, err := pubDate(&items[0])
     if err != nil {
-        return zdate, err
+        t.Fatal(err)
     }
-    return ret, nil
+    for i, _ := range items {
+        itdate, err := pubDate(&items[i])
+        if err != nil {
+            t.Fatal(err)
+        }
+        if itdate.After(prev) {
+            t.Fatalf("item %d comes out of order\n", i)
+        }
+        if itdate.After(now) {
+            t.Fatalf("item %d comes after 'now'\n", i)
+        }
+        prev = itdate
+    }
+
+    future, err := feed.d.NextDate()
+    if err != nil {
+        t.Fatal(err)
+    }
+    if future.Before(now) {
+        t.Fatal("still item(s) available before 'now'")
+    }
 }
