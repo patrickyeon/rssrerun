@@ -1,58 +1,18 @@
 package rssmangle
 
 import (
-    "strconv"
-    "strings"
     "testing"
     "time"
+
     "rss-rerun/datesource"
+    "rss-rerun/testhelp"
+
     "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
 )
 
 func startDate() time.Time {
     return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
-}
-
-type RSS struct {
-    Items []string
-}
-
-func createRSS() *RSS {
-    return new(RSS)
-}
-
-func createAndPopulateRSS(n int, d time.Time) *RSS {
-    if n < 0 {
-        return nil
-    }
-    ret := new(RSS)
-    for i := n; i >= 1; i-- {
-        pubdate := d.AddDate(0, 0, 7*(i - 1)).Format(time.RFC822)
-        postText := "<title>post number " + strconv.Itoa(i) + "</title>"
-        postText += "<pubDate>" + pubdate + "</pubDate>"
-        postText += "<description>originally published " + pubdate
-        postText += "</description>"
-        ret.AddPost(postText)
-    }
-    return ret
-}
-
-func (r *RSS) AddPost(s string) {
-    r.Items = append(r.Items, s)
-}
-
-func (r *RSS) Text() string {
-    retval := "<rss version=\"2.0\"><channel><title>foo</title>\n"
-    retval += "<link>http://example.com</link>\n"
-    retval += "<description>Foobity foo bar.</description>\n"
-    retval += "<item>" + strings.Join(r.Items, "</item>\n<item>") + "</item>\n"
-    retval += "</channel></rss>\n"
-    return retval
-}
-
-func (r *RSS) Bytes() []byte {
-    return []byte(r.Text())
 }
 
 func nodesAreSameish(na, nb xml.Node) bool {
@@ -176,7 +136,7 @@ func xmldiff(xmla []byte, xmlb []byte) (bool, error) {
 
 func NoTestIngest(t *testing.T) {
     // temporarily disabled, parsing a feed changes it.
-    rss := createAndPopulateRSS(10, startDate())
+    rss := testhelp.CreateAndPopulateRSS(10, startDate())
     rssb := rss.Bytes()
     feed, err := NewFeed(rssb, nil)
     if err != nil {
@@ -199,7 +159,7 @@ func NoTestIngest(t *testing.T) {
 }
 
 func TestCompare(t *testing.T) {
-    rss := createAndPopulateRSS(10, startDate())
+    rss := testhelp.CreateAndPopulateRSS(10, startDate())
     feed, err := NewFeed(rss.Bytes(), nil)
     if err != nil {
         t.Error("errored out parsing feed")
@@ -238,7 +198,7 @@ func TestCompare(t *testing.T) {
 }
 
 func TestHandleCDATA(t *testing.T) {
-    rss := createAndPopulateRSS(2, startDate())
+    rss := testhelp.CreateAndPopulateRSS(2, startDate())
     breakText := "<title>pre-CDATA</title><description><![CDATA["
     breakText += "</item><item>this should not be its own item</item>"
     breakText += "]]></description"
@@ -254,7 +214,7 @@ func TestHandleCDATA(t *testing.T) {
 
 func TestTimeShift(t *testing.T) {
     sched := []time.Weekday{time.Sunday, time.Tuesday}
-    rss := createAndPopulateRSS(10, startDate())
+    rss := testhelp.CreateAndPopulateRSS(10, startDate())
     rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
 
     feed, _ := NewFeed(rss.Bytes(), rerun)
@@ -287,7 +247,7 @@ func TestTimeShift(t *testing.T) {
 
 func TestLatestFive(t *testing.T) {
     sched := []time.Weekday{time.Sunday, time.Tuesday}
-    rss := createAndPopulateRSS(100, startDate().AddDate(-3, 0, 0))
+    rss := testhelp.CreateAndPopulateRSS(100, startDate().AddDate(-3, 0, 0))
     rerun := datesource.NewDateSource(startDate(), sched)
 
     feed, _ := NewFeed(rss.Bytes(), rerun)
