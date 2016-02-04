@@ -271,7 +271,7 @@ func TestTimeShift(t *testing.T) {
     expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
     for i := (len(shifted.Items) - 1); i >= 0; i-- {
         it := shifted.Items[i]
-        pd, err := pubDate(&it)
+        pd, err := feed.pubDate(&it)
         if err != nil {
             t.Error(err)
         } else {
@@ -300,12 +300,12 @@ func TestLatestFive(t *testing.T) {
         t.Errorf("expected 5 items, got %d\n", len(items))
     }
 
-    prev, err := pubDate(&items[0])
+    prev, err := feed.pubDate(&items[0])
     if err != nil {
         t.Fatal(err)
     }
     for i, _ := range items {
-        itdate, err := pubDate(&items[i])
+        itdate, err := feed.pubDate(&items[i])
         if err != nil {
             t.Fatal(err)
         }

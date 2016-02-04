@@ -8,11 +8,17 @@ import (
     "github.com/moovweb/gokogiri/xml"
 )
 
+var (
+    dateTypes = []string {time.RFC822, time.RFC822Z,
+                          time.RFC1123, time.RFC1123Z}
+)
+
 type Feed struct {
     Root xml.Node
     Items []xml.Node
     d *datesource.DateSource
     timeshifted bool
+    dtInd int
 }
 
 func NewFeed(t []byte, d *datesource.DateSource) (*Feed, error) {
@@ -28,6 +34,7 @@ func NewFeed(t []byte, d *datesource.DateSource) (*Feed, error) {
         return nil, err
     }
     f.d = d
+    f.dtInd = 0
     return f, nil
 }
 
@@ -49,14 +56,14 @@ func (f *Feed) TimeShift() error {
         if err != nil {
             return err
         }
-        olddate, err := time.Parse(time.RFC822, pd[0].Content())
+        olddate, err := f.parseDate(pd[0].Content())
         if err != nil {
             return err
         }
         if olddate.After(date) {
             break
         }
-        pd[0].SetContent(date.Format(time.RFC822))
+        pd[0].SetContent(date.Format(dateTypes[f.dtInd]))
     }
     f.timeshifted = true
     return nil
@@ -70,7 +77,7 @@ func (f *Feed) LatestAt(n int, t time.Time) ([]xml.Node, error) {
     f.TimeShift()
     i := -1
     for j, it := range f.Items {
-        d, err := pubDate(&it)
+        d, err := f.pubDate(&it)
         if err != nil {
             return nil, err
         }
@@ -92,7 +99,28 @@ func (f *Feed) LatestAt(n int, t time.Time) ([]xml.Node, error) {
     return f.Items[i : end], nil
 }
 
-func pubDate(n *xml.Node) (time.Time, error) {
+func (f *Feed) parseDate(s string) (time.Time, error) {
+    if f.dtInd < 0 || len(dateTypes) >= f.dtInd {
+        f.dtInd = 0
+    }
+    startdt := f.dtInd
+    for {
+        date, err := time.Parse(dateTypes[f.dtInd], s)
+        if err == nil {
+            return date, nil
+        }
+        f.dtInd++
+        if f.dtInd >= len(dateTypes) {
+            f.dtInd = 0
+        }
+        if f.dtInd == startdt {
+            zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
+            return zdate, errors.New("invalid date format")
+        }
+    }
+}
+
+func (f *Feed) pubDate(n *xml.Node) (time.Time, error) {
     zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
     d, err := (*n).Search("pubDate")
     if err != nil {
@@ -101,9 +129,5 @@ func pubDate(n *xml.Node) (time.Time, error) {
     if len(d) != 1 {
         return zdate, errors.New("no pubdate" + string(len(d)))
     }
-    ret, err := time.Parse(time.RFC822, d[0].Content())
-    if err != nil {
-        return zdate, err
-    }
-    return ret, nil
+    return f.parseDate(d[0].Content())
 }
