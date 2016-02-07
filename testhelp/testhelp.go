@@ -23,6 +23,7 @@ func CreateAndPopulateRSS(n int, d time.Time) *RSS {
         pubdate := d.AddDate(0, 0, 7*(i - 1)).Format(time.RFC822)
         postText := "<title>post number " + strconv.Itoa(i) + "</title>"
         postText += "<pubDate>" + pubdate + "</pubDate>"
+        postText += "<guid>" + strconv.Itoa(i) + "</guid>"
         postText += "<description>originally published " + pubdate
         postText += "</description>"
         ret.AddPost(postText)
