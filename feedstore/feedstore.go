@@ -9,7 +9,7 @@ import (
     "os"
     "strconv"
 
-    //"github.com/moovweb/gokogiri"
+    "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
 )
 
@@ -110,7 +110,6 @@ func (s *Store) indexFor(url string) (Index, error) {
     return ind, nil
 }
 
-/*
 func (s *Store) Get(url string, start int, end int) ([]xml.Node, error) {
     index, err := s.indexFor(url)
     if err != nil {
@@ -123,28 +122,41 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
     if start < 0 || end <= start {
         return nil, errors.New("invalid range")
     }
-    if end > index.Get("count") {
-        return nil, errors.new("invalid range")
+    if end > index.Count {
+        return nil, errors.New("invalid range")
     }
 
     ret := make([]xml.Node, end - start)
 
     i := start
     for nxml := start / 10; nxml <= end / 10; nxml++ {
-        fname := rootdir + index.Get("hash") + "/" + strconv.Itoa(nxml) + ".xml"
+        fname := s.rootdir + index.Hash + "/" + strconv.Itoa(nxml) + ".xml"
         f, err := os.Open(fname)
         if err != nil {
             return nil, err
         }
-        items := gokogiri.ParseXml(f.Bytes()).Root().Search("//item")
+        ftxt, err := ioutil.ReadAll(f)
+        if err != nil {
+            return nil, err
+        }
+        ftxt = append([]byte("<xml>\n"), ftxt...)
+        ftxt = append(ftxt, []byte("</xml>")...)
+
+        itXml, err := gokogiri.ParseXml(ftxt)
+        if err != nil {
+            return nil, err
+        }
+        items, err := itXml.Root().Search("//item")
+        if err != nil {
+            return nil, err
+        }
         for ; i < end && i < 10 * (nxml + 1); i++ {
-            ret[i] = items[i % 10].Copy()
+            ret[start - i] = items[i % 10]
         }
         f.Close()
     }
     return ret, nil
 }
-*/
 
 func (s *Store) NumItems(url string) int {
     ind, err := s.indexFor(url)
