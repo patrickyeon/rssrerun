@@ -46,6 +46,7 @@ func TestStoreItems(t *testing.T) {
     if s.NumItems(url) != 0 {
         t.Fatal("empty store was not actually empty")
     }
+    s.CreateIndex(url)
 
     items, _, err := createItems(nIt, startDate())
     if err != nil {
@@ -70,6 +71,7 @@ func TestStoreAndRetrieve(t *testing.T) {
     if err != nil {
         t.Fatal(err)
     }
+    s.CreateIndex(url)
     _ = s.Update(url, items)
     for start := 0; start < (nItems - 5); start++ {
         for end := start + 5; end < nItems; end++ {

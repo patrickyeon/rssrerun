@@ -70,27 +70,16 @@ func fileof(s *Store, ind Index, item int) string {
 func (s *Store) indexFor(url string) (Index, error) {
     hash := key(url)
     index, err := os.Open(s.rootdir + hash + "/index.json")
-    ind := Index{}
     if err != nil {
-        if os.IsNotExist(err) {
-            err = os.Mkdir(s.rootdir + hash, os.ModeDir | os.ModePerm)
-            if err != nil {
-                return ind, err
-            }
-        } else {
-            return ind, err
-        }
-        ind.Url = url
-        ind.Hash = hash
-        s.saveIndex(ind, url)
-    } else {
-        dat, err := ioutil.ReadAll(index)
-        if err != nil {
-            return ind, err
-        }
-        json.Unmarshal(dat, &ind)
-        _ = index.Close()
+        return Index{}, err
     }
+    ind := Index{}
+    dat, err := ioutil.ReadAll(index)
+    if err != nil {
+        return ind, err
+    }
+    json.Unmarshal(dat, &ind)
+    _ = index.Close()
 
     if ind.Url != url {
         return ind, errors.New("hash collisions not implemented")
@@ -107,6 +96,24 @@ func (s *Store) indexFor(url string) (Index, error) {
             return ind, errors.New("couldn't find url")
         //}
     }
+    return ind, nil
+}
+
+func (s *Store) CreateIndex(url string) (Index, error) {
+    hash := key(url)
+    _, err := os.Stat(s.rootdir + hash + "/index.json")
+    if err == nil || !os.IsNotExist(err) {
+        // it already exists
+        return Index{}, errors.New("Index already exists")
+    }
+    err = os.Mkdir(s.rootdir + hash, os.ModeDir | os.ModePerm)
+    if err != nil {
+        return Index{}, err
+    }
+    ind := Index{}
+    ind.Url = url
+    ind.Hash = hash
+    s.saveIndex(ind, url)
     return ind, nil
 }
 
