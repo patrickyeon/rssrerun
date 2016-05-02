@@ -93,20 +93,14 @@ func TestStoreAndRetrieve(t *testing.T) {
 }
 
 func TestHashCollisions(t *testing.T) {
-    //FIXME doesn't really exercise, no evidence that parent still works
     s := emptyStore()
+    s.key = func (string) string { return "hashed" }
     url := "test://testurl.whatevs"
     aggrUrl := "test://break.stuff"
     s.CreateIndex(url)
-    aggr, _ := s.CreateIndex(aggrUrl)
-    aggr.Hash = key(url)
-    err := s.saveIndex(aggr)
+    _, err := s.CreateIndex(aggrUrl)
     if err != nil {
-        t.Fatalf("error saving aggressor, %s\n", err)
-    }
-    _, err = s.CreateIndex(url)
-    if err != nil {
-        t.Fatalf("couldn't create index with a collision, %s\n", err)
+        t.Fatalf("error creating aggressor, %s\n", err)
     }
 
     vicItems, _, _ := createItems(3, startDate())

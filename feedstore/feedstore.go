@@ -42,6 +42,7 @@ type Index struct {
 
 type Store struct {
     rootdir string
+    key func(string)string
 }
 
 func NewStore(dir string) *Store {
@@ -49,10 +50,11 @@ func NewStore(dir string) *Store {
     // make sure it exists
     ret := new(Store)
     ret.rootdir = dir
+    ret.key = justmd5
     return ret
 }
 
-func key(url string) string {
+func justmd5(url string) string {
     ret := md5.Sum([]byte(url))
     return hex.EncodeToString(ret[:])
 }
@@ -69,7 +71,7 @@ func fileof(s *Store, ind Index, item int) string {
 }
 
 func (s *Store) indexFor(url string) (Index, error) {
-    ind, err := s.indexForHash(key(url))
+    ind, err := s.indexForHash(s.key(url))
     if err != nil {
         return Index{}, err
     }
@@ -102,7 +104,7 @@ func (s *Store) indexForHash(hash string) (Index, error) {
 }
 
 func (s *Store) CreateIndex(url string) (Index, error) {
-    hash := key(url)
+    hash := s.key(url)
     _, err := s.indexFor(url)
     if err == nil {
         return Index{}, errors.New("Index already exists")
@@ -110,7 +112,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
 
     ind := Index{}
     ind.Url = url
-    parent, err := s.indexForHash(key(url))
+    parent, err := s.indexForHash(s.key(url))
     if err == nil {
         // there is a collision
         ind.Hash = parent.Hash + "-" + strconv.Itoa(len(ind.Others))
