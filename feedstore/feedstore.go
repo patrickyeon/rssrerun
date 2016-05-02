@@ -27,6 +27,7 @@ type Index struct {
     Count int `json:"count"`
     Hash string `json:"hash"`
     Guids []string `json:"guids"`
+    Others map[string]string `json:"others"`
 }
 
 /* store subdirectory:
@@ -68,52 +69,68 @@ func fileof(s *Store, ind Index, item int) string {
 }
 
 func (s *Store) indexFor(url string) (Index, error) {
-    hash := key(url)
+    ind, err := s.indexForHash(key(url))
+    if err != nil {
+        return Index{}, err
+    }
+
+    if ind.Url != url {
+        for key := range ind.Others {
+            if key == url {
+                return s.indexForHash(ind.Others[key])
+            }
+        }
+        return Index{}, errors.New("couldn't find url")
+    }
+
+    return ind, nil
+}
+
+func (s *Store) indexForHash(hash string) (Index, error) {
     index, err := os.Open(s.rootdir + hash + "/index.json")
     if err != nil {
         return Index{}, err
     }
-    ind := Index{}
     dat, err := ioutil.ReadAll(index)
     if err != nil {
-        return ind, err
+        return Index{}, err
     }
+    ind := Index{}
     json.Unmarshal(dat, &ind)
     _ = index.Close()
-
-    if ind.Url != url {
-        return ind, errors.New("hash collisions not implemented")
-        // collision, it should forward us to a new one
-        //if Index.Get("others").Contains(url) {
-        //    hash = Index.Get("others").Get(url)
-        //    index, err = os.Open(s.rootdir + hash + "/index.json")
-        //    // FIXME jsonize
-        //    if Index.Get("url") != url {
-        //        // no, there is not a chain of collisions
-        //        return nil, errors.new("couldn't find url")
-        //    }
-        //} else {
-            return ind, errors.New("couldn't find url")
-        //}
-    }
     return ind, nil
 }
 
 func (s *Store) CreateIndex(url string) (Index, error) {
     hash := key(url)
-    _, err := os.Stat(s.rootdir + hash + "/index.json")
-    if err == nil || !os.IsNotExist(err) {
-        // it already exists
+    _, err := s.indexFor(url)
+    if err == nil {
         return Index{}, errors.New("Index already exists")
     }
-    err = os.Mkdir(s.rootdir + hash, os.ModeDir | os.ModePerm)
+
+    ind := Index{}
+    ind.Url = url
+    parent, err := s.indexForHash(key(url))
+    if err == nil {
+        // there is a collision
+        ind.Hash = parent.Hash + "-" + strconv.Itoa(len(ind.Others))
+        if parent.Others == nil {
+            parent.Others = make(map[string]string)
+        }
+        parent.Others[url] = ind.Hash
+        s.saveIndex(parent)
+    } else {
+        ind.Hash = hash
+    }
+    err = os.Mkdir(s.rootdir + ind.Hash, os.ModeDir | os.ModePerm)
     if err != nil {
         return Index{}, err
     }
-    ind := Index{}
-    ind.Url = url
-    ind.Hash = hash
-    s.saveIndex(ind, url)
+    err = s.saveIndex(ind)
+    if err != nil {
+        return Index{}, err
+    }
+
     return ind, nil
 }
 
@@ -173,24 +190,13 @@ func (s *Store) NumItems(url string) int {
     return ind.Count
 }
 
-func (s *Store) saveIndex(index Index, url string) error {
-    if index.Url != url {
-        return errors.New("hash collisions not implemented")
-    }
-    hash := key(url)
-    if index.Hash == "" {
-        if _, err := os.Stat(s.rootdir + hash); os.IsNotExist(err) {
-            os.Mkdir(s.rootdir + hash, os.ModeDir)
-            index.Hash = hash
-        }
-    }
-
+func (s *Store) saveIndex(index Index) error {
     ser, err := json.Marshal(index)
     if err != nil {
         return err
     }
 
-    f, err := os.Create(s.rootdir + hash + "/index.json")
+    f, err := os.Create(s.rootdir + index.Hash + "/index.json")
     if err != nil {
         return err
     }
@@ -255,7 +261,7 @@ func (s *Store) Update(url string, items []xml.Node) error {
     }
     storefile.Close()
     ind.Count = lastind + 1
-    err = s.saveIndex(ind, ind.Url)
+    err = s.saveIndex(ind)
     if err != nil {
         return err
     }

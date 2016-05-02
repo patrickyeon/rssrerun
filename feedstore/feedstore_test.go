@@ -91,3 +91,38 @@ func TestStoreAndRetrieve(t *testing.T) {
         }
     }
 }
+
+func TestHashCollisions(t *testing.T) {
+    //FIXME doesn't really exercise, no evidence that parent still works
+    s := emptyStore()
+    url := "test://testurl.whatevs"
+    aggrUrl := "test://break.stuff"
+    s.CreateIndex(url)
+    aggr, _ := s.CreateIndex(aggrUrl)
+    aggr.Hash = key(url)
+    err := s.saveIndex(aggr)
+    if err != nil {
+        t.Fatalf("error saving aggressor, %s\n", err)
+    }
+    _, err = s.CreateIndex(url)
+    if err != nil {
+        t.Fatalf("couldn't create index with a collision, %s\n", err)
+    }
+
+    vicItems, _, _ := createItems(3, startDate())
+    aggrItems, _, _ := createItems(5, startDate())
+    err = s.Update(aggrUrl, aggrItems)
+    if err != nil {
+        t.Fatal(err)
+    }
+    err = s.Update(url, vicItems)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    vicCount := s.NumItems(url)
+    aggrCount := s.NumItems(aggrUrl)
+    if vicCount != 3 || aggrCount != 5 {
+        t.Fatalf("expected (3, 5) items, got (%d, %d).\n", vicCount, aggrCount)
+    }
+}
