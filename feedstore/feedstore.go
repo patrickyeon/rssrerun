@@ -6,6 +6,7 @@ import (
     "encoding/json"
     "errors"
     "io/ioutil"
+    "net/http"
     "os"
     "strconv"
 
@@ -43,7 +44,10 @@ type Index struct {
 type Store struct {
     rootdir string
     key func(string)string
+    canon func(string) (string, error)
 }
+
+var canonCache = make(map[string]string)
 
 func NewStore(dir string) *Store {
     // expand dir to canonical rep
@@ -51,12 +55,35 @@ func NewStore(dir string) *Store {
     ret := new(Store)
     ret.rootdir = dir
     ret.key = justmd5
+    ret.canon = cachingFollowHttp
     return ret
 }
 
 func justmd5(url string) string {
     ret := md5.Sum([]byte(url))
     return hex.EncodeToString(ret[:])
+}
+
+func followHttp(url string) (string, error) {
+    data, err := http.Get(url)
+    if err != nil {
+        return "", err
+    }
+    if stat := data.StatusCode; stat != 200 {
+        return "", errors.New("HTTP error " + strconv.Itoa(stat))
+    }
+    return data.Request.URL.String(), nil
+}
+
+func cachingFollowHttp(url string) (string, error) {
+    if canonCache[url] != "" {
+        return canonCache[url], nil
+    }
+    ret, err := followHttp(url)
+    if err == nil {
+        canonCache[url] = ret
+    }
+    return ret, err
 }
 
 func fileof(s *Store, ind Index, item int) string {
@@ -71,6 +98,10 @@ func fileof(s *Store, ind Index, item int) string {
 }
 
 func (s *Store) indexFor(url string) (Index, error) {
+    url, err := s.canon(url)
+    if err != nil {
+        return Index{}, err
+    }
     ind, err := s.indexForHash(s.key(url))
     if err != nil {
         return Index{}, err
@@ -104,15 +135,19 @@ func (s *Store) indexForHash(hash string) (Index, error) {
 }
 
 func (s *Store) CreateIndex(url string) (Index, error) {
+    url, err := s.canon(url)
+    if err != nil {
+        return Index{}, err
+    }
     hash := s.key(url)
-    _, err := s.indexFor(url)
+    _, err = s.indexFor(url)
     if err == nil {
         return Index{}, errors.New("Index already exists")
     }
 
     ind := Index{}
     ind.Url = url
-    parent, err := s.indexForHash(s.key(url))
+    parent, err := s.indexForHash(hash)
     if err == nil {
         // there is a collision
         ind.Hash = parent.Hash + "-" + strconv.Itoa(len(ind.Others))

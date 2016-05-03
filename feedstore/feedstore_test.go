@@ -22,7 +22,9 @@ func startDate() time.Time {
 func emptyStore() Store {
     _ = os.RemoveAll(TDir + "/store")
     _ = os.Mkdir(TDir + "/store", os.ModeDir | os.ModePerm)
-    return *NewStore(TDir + "/store/")
+    ret := NewStore(TDir + "/store/")
+    ret.canon = func (url string) (string, error) {return url, nil}
+    return *ret
 }
 
 func createItems(n int, start time.Time) ([]xml.Node, []string, error) {
