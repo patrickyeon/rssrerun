@@ -270,6 +270,9 @@ func (s *Store) Update(url string, items []xml.Node) error {
         if err != nil {
             return err
         }
+        if len(gtag) == 0 {
+            return errors.New("item has no guid element")
+        }
         g := gtag[0].Content()
         if _, found := guids[g]; found {
             continue
