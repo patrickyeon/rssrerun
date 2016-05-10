@@ -172,6 +172,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
 }
 
 func (s *Store) Get(url string, start int, end int) ([]xml.Node, error) {
+    // we will return an array of items, oldest first, of length (end - start)
     index, err := s.indexFor(url)
     if err != nil {
         return nil, err
@@ -188,33 +189,35 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
     }
 
     ret := make([]xml.Node, end - start)
+    var items []xml.Node
 
-    i := start
-    for nxml := start / 10; nxml <= end / 10; nxml++ {
-        fname := s.rootdir + index.Hash + "/" + strconv.Itoa(nxml) + ".xml"
-        f, err := os.Open(fname)
-        if err != nil {
-            return nil, err
+    fname := ""
+    for i := start; i < end; i++ {
+        if fname != fileof(s, index, i) {
+            fname = fileof(s, index, i)
+            f, err := os.Open(fname)
+            if err != nil {
+                return nil, err
+            }
+            ftxt, err := ioutil.ReadAll(f)
+            f.Close()
+            if err != nil {
+                return nil, err
+            }
+            // TODO this is all fairly janky, as we build up an xml document,
+            //      and then parse it just to get it split into items.
+            ftxt = append([]byte("<xml>\n"), ftxt...)
+            ftxt = append(ftxt, []byte("</xml>")...)
+            itXml, err := gokogiri.ParseXml(ftxt)
+            if err != nil {
+                return nil, err
+            }
+            items, err = itXml.Root().Search("//item")
+            if err != nil {
+                return nil, err
+            }
         }
-        ftxt, err := ioutil.ReadAll(f)
-        if err != nil {
-            return nil, err
-        }
-        ftxt = append([]byte("<xml>\n"), ftxt...)
-        ftxt = append(ftxt, []byte("</xml>")...)
-
-        itXml, err := gokogiri.ParseXml(ftxt)
-        if err != nil {
-            return nil, err
-        }
-        items, err := itXml.Root().Search("//item")
-        if err != nil {
-            return nil, err
-        }
-        for ; i < end && i < 10 * (nxml + 1); i++ {
-            ret[start - i] = items[i % 10]
-        }
-        f.Close()
+        ret[i - start] = items[i % 10]
     }
     return ret, nil
 }
@@ -251,7 +254,7 @@ func (s *Store) Update(url string, items []xml.Node) error {
     }
     lastind := ind.Count - 1
     storefile, err := os.OpenFile(fileof(s, ind, lastind),
-                                  os.O_APPEND, os.ModePerm)
+                                  os.O_APPEND | os.O_WRONLY, os.ModePerm)
     if os.IsNotExist(err) {
         storefile, err = os.Create(fileof(s, ind, lastind))
     }

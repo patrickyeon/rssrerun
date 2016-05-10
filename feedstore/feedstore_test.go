@@ -65,16 +65,20 @@ func TestStoreItems(t *testing.T) {
     }
 }
 
-func TestStoreAndRetrieve(t *testing.T) {
+func gimmeStore() (Store, string, []xml.Node) {
     s := emptyStore()
     url := "test://testurl.whatevs"
     nItems := 25
-    items, _, err := createItems(nItems, startDate())
-    if err != nil {
-        t.Fatal(err)
-    }
+    items, _, _ := createItems(nItems, startDate())
     s.CreateIndex(url)
     _ = s.Update(url, items)
+
+    return s, url, items
+}
+
+func TestStoreAndRetrieve(t *testing.T) {
+    s, url, items := gimmeStore()
+    nItems := len(items)
     for start := 0; start < (nItems - 5); start++ {
         for end := start + 5; end < nItems; end++ {
             for i := 0; i < 5; i++ {
@@ -90,6 +94,20 @@ func TestStoreAndRetrieve(t *testing.T) {
                     t.Error(its[0].String())
                 }
             }
+        }
+    }
+}
+
+func TestStoreAndRetrieveMany(t *testing.T) {
+    s, url, items := gimmeStore()
+    nItems := len(items)
+    for i := 1; i < nItems; i++ {
+        its, err := s.Get(url, 0, i)
+        if err != nil {
+            t.Fatal(err)
+        }
+        if len(its) != i {
+            t.Fatalf("store and retrieve failed at i=%d", i)
         }
     }
 }
@@ -120,5 +138,46 @@ func TestHashCollisions(t *testing.T) {
     aggrCount := s.NumItems(aggrUrl)
     if vicCount != 3 || aggrCount != 5 {
         t.Fatalf("expected (3, 5) items, got (%d, %d).\n", vicCount, aggrCount)
+    }
+}
+
+func TestUpdateFile(t *testing.T) {
+    s := emptyStore()
+    url := "test://testurl.whatevs"
+    nItems := 30
+    items, _, _ := createItems(nItems, startDate())
+    s.CreateIndex(url)
+    _ = s.Update(url, items[:22])
+    err := s.Update(url, items[:25])
+    if err != nil {
+        t.Fatal(err)
+    }
+    err = s.Update(url, items)
+    if err != nil {
+        t.Fatal(err)
+    }
+    its, err := s.Get(url, 0, nItems)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(its) != nItems {
+        t.Fatalf("Expected %d items, got %d", nItems, len(its))
+    }
+    for i, it := range its {
+        if it.String() != items[i].String() {
+            t.Fatal(it.String())
+        }
+    }
+    its, err = s.Get(url, 3, nItems)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(its) != (nItems - 3) {
+        t.Fatalf("Expected %d items, got %d", nItems - 3, len(its))
+    }
+    for i, it := range its {
+        if it.String() != items[i + 3].String() {
+            t.Fatal(it.String())
+        }
     }
 }
