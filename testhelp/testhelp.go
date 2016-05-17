@@ -15,6 +15,10 @@ func createRSS() *RSS {
 }
 
 func CreateAndPopulateRSS(n int, d time.Time) *RSS {
+    return CreateIncompleteRSS(n, d, true, true)
+}
+
+func CreateIncompleteRSS(n int, d time.Time, addPD bool, addGuid bool) *RSS {
     if n < 0 {
         return nil
     }
@@ -22,8 +26,13 @@ func CreateAndPopulateRSS(n int, d time.Time) *RSS {
     for i := n; i >= 1; i-- {
         pubdate := d.AddDate(0, 0, 7*(i - 1)).Format(time.RFC822)
         postText := "<title>post number " + strconv.Itoa(i) + "</title>"
-        postText += "<pubDate>" + pubdate + "</pubDate>"
-        postText += "<guid>" + strconv.Itoa(i) + "</guid>"
+        if addPD {
+            postText += "<pubDate>" + pubdate + "</pubDate>"
+        }
+        if addGuid {
+            postText += "<guid>" + strconv.Itoa(i) + "</guid>"
+        }
+        postText += "<link>url://foo.bar/rss/" + strconv.Itoa(i) + "</link>"
         postText += "<description>originally published " + pubdate
         postText += "</description>"
         ret.AddPost(postText)

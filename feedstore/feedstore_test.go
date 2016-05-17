@@ -29,17 +29,21 @@ func emptyStore() Store {
 
 func createItems(n int, start time.Time) ([]xml.Node, []string, error) {
     rss := testhelp.CreateAndPopulateRSS(n, start)
-    chronItems := make([]xml.Node, n)
+    chronItems, err := parsedItems(n, rss)
+    return chronItems, rss.Items, err
+}
+
+func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
+    retItems := make([]xml.Node, n)
     for i := 0; i < n; i++ {
         it, err := gokogiri.ParseXml([]byte("<item>" + rss.Items[n - 1 - i] + "</item>"))
         if err != nil {
-            return nil, nil, err
+            return nil, err
         }
-        chronItems[i] = it.Root()
+        retItems[i] = it.Root()
     }
-    return chronItems, rss.Items, nil
+    return retItems, nil
 }
-
 
 func TestStoreItems(t *testing.T) {
     nIt := 15
@@ -179,5 +183,47 @@ func TestUpdateFile(t *testing.T) {
         if it.String() != items[i + 3].String() {
             t.Fatal(it.String())
         }
+    }
+}
+
+func TestMetaVals(t *testing.T) {
+    s, u, _ := gimmeStore()
+    val, err := s.GetInfo(u, "foo")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if val != "" {
+        t.Fatal("expected empty response, got: %s", val)
+    }
+
+    if err = s.SetInfo(u, "bar", "baz"); err != nil {
+        t.Fatal(err)
+    }
+    val, err = s.GetInfo(u, "foo")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if val != "" {
+        t.Fatal("expected empty response, got: %s", val)
+    }
+    val, err = s.GetInfo(u, "bar")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if val != "baz" {
+        t.Fatal("expected baz, got: %s", val)
+    }
+}
+
+func TestNoGuid(t *testing.T) {
+    s := emptyStore()
+    url := "test://testurl.whatnot"
+    nItems := 12
+    rss := testhelp.CreateIncompleteRSS(nItems, startDate(), true, false)
+    items, _ := parsedItems(nItems, rss)
+    s.CreateIndex(url)
+    err := s.Update(url, items)
+    if err != nil {
+        t.Fatal(err)
     }
 }

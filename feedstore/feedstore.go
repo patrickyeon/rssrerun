@@ -18,8 +18,9 @@ import (
 {'url': 'actual url used',
  'count': 'number of items',
  'hash': 'actual hash',
- //'others': {$url: $hash},
- 'guids': [set_of_stashed_guids]
+ 'others': {$url: $hash},
+ 'guids': [set_of_stashed_guids],
+ 'meta': {$key: $val} // for external use
 }
 */
 
@@ -29,6 +30,7 @@ type Index struct {
     Hash string `json:"hash"`
     Guids []string `json:"guids"`
     Others map[string]string `json:"others"`
+    Meta map[string]string `json:"meta"`
 }
 
 /* store subdirectory:
@@ -246,6 +248,26 @@ func (s *Store) saveIndex(index Index) error {
     return nil
 }
 
+func getGuid(item xml.Node) (string, error) {
+    // come on, let's hope for a proper guid
+    gtag, err := item.Search("guid")
+    if err == nil && len(gtag) > 0 {
+        return gtag[0].Content(), nil
+    }
+    title, err := item.Search("title")
+    if err != nil {
+        return "", err
+    }
+    link, err := item.Search("link")
+    if err != nil {
+        return "", err
+    }
+    if len(link) == 0 || len(title) == 0 {
+        return "", errors.New("can't build a guid")
+    }
+    return title[0].Content() + " - " + link[0].Content(), nil
+}
+
 func (s *Store) Update(url string, items []xml.Node) error {
     // items must be passed in oldest first
     ind, err := s.indexFor(url)
@@ -269,15 +291,11 @@ func (s *Store) Update(url string, items []xml.Node) error {
     }
 
     for _, it := range items {
-        gtag, err := it.Search("guid")
+        guid, err := getGuid(it)
         if err != nil {
             return err
         }
-        if len(gtag) == 0 {
-            return errors.New("item has no guid element")
-        }
-        g := gtag[0].Content()
-        if _, found := guids[g]; found {
+        if _, found := guids[guid]; found {
             continue
         }
 
@@ -294,7 +312,7 @@ func (s *Store) Update(url string, items []xml.Node) error {
             storefile.Close()
             return err
         }
-        guids[g] = true
+        guids[guid] = true
     }
     ind.Guids = make([]string, len(guids))
     i := 0
@@ -309,4 +327,24 @@ func (s *Store) Update(url string, items []xml.Node) error {
         return err
     }
     return nil
+}
+
+func (s *Store) GetInfo(url string, key string) (string, error) {
+    ind, err := s.indexFor(url)
+    if err != nil {
+        return "", err
+    }
+    return ind.Meta[key], nil
+}
+
+func (s *Store) SetInfo(url string, key string, val string) error {
+    ind, err := s.indexFor(url)
+    if err == nil {
+        if ind.Meta == nil {
+            ind.Meta = make(map[string]string)
+        }
+        ind.Meta[key] = val
+        err = s.saveIndex(ind)
+    }
+    return err
 }
