@@ -13,23 +13,81 @@ var (
                           time.RFC1123, time.RFC1123Z}
 )
 
-type Feed struct {
-    Root xml.Node
-    Items []xml.Node
+type Item interface {
+    PubDate() (time.Time, error)
+    NewPubDate(date time.Time) (error)
+    Guid() (string, error)
+    String() string
+}
+
+type Feed interface {
+    TimeShift() error
+
+    Items() []Item
+    Item(n int) Item
+    LatestAt(n int, t time.Time) ([]Item, error)
+
+    Bytes() []byte
+
+}
+
+type RssItem struct {
+    src xml.Node
+}
+
+type RssFeed struct {
+    root xml.Node
+    items []xml.Node
     d *datesource.DateSource
     timeshifted bool
     dtInd int
 }
 
-func NewFeed(t []byte, d *datesource.DateSource) (*Feed, error) {
+func (f *RssFeed) Items() []Item {
+    ret := make([]Item, len(f.items))
+    for i, it := range f.items {
+        ret[i] = &RssItem{it}
+    }
+    return ret
+}
+
+func (item *RssItem) String() string {
+    return item.src.String()
+}
+
+func (f *RssFeed) Item(n int) Item {
+    return &RssItem{f.items[n]}
+}
+
+func (item *RssItem) Guid() (string, error) {
+    return "", nil
+}
+
+func (item *RssItem) PubDate() (time.Time, error) {
+    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
+    d, err := item.src.Search("pubDate")
+    if err != nil {
+        return zdate, err
+    }
+    if len(d) != 1 {
+        return zdate, errors.New("no pubdate" + string(len(d)))
+    }
+    return parseDate(d[0].Content())
+}
+
+func (item *RssItem) NewPubDate(date time.Time) (error) {
+    return nil
+}
+
+func NewFeed(t []byte, d *datesource.DateSource) (*RssFeed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
         return nil, err
     }
     // TODO check assumptions (one channel)
-    f := new(Feed)
-    f.Root = doc.Root()
-    f.Items, err = doc.Root().Search("//channel//item")
+    f := new(RssFeed)
+    f.root = doc.Root()
+    f.items, err = doc.Root().Search("//channel//item")
     if err != nil {
         return nil, err
     }
@@ -38,16 +96,16 @@ func NewFeed(t []byte, d *datesource.DateSource) (*Feed, error) {
     return f, nil
 }
 
-func (f *Feed) Bytes() []byte {
-    return f.Root.ToBuffer(nil)
+func (f *RssFeed) Bytes() []byte {
+    return f.root.ToBuffer(nil)
 }
 
-func (f *Feed) TimeShift() error {
+func (f *RssFeed) TimeShift() error {
     if f.timeshifted {
         return nil
     }
-    for i := (len(f.Items) - 1); i >= 0; i-- {
-        it := f.Items[i]
+    for i := (len(f.items) - 1); i >= 0; i-- {
+        it := f.items[i]
         pd, err := it.Search("pubDate")
         if err != nil {
             return err
@@ -56,7 +114,7 @@ func (f *Feed) TimeShift() error {
         if err != nil {
             return err
         }
-        olddate, err := f.parseDate(pd[0].Content())
+        olddate, err := parseDate(pd[0].Content())
         if err != nil {
             return err
         }
@@ -69,15 +127,16 @@ func (f *Feed) TimeShift() error {
     return nil
 }
 
-func (f *Feed) LatestAt(n int, t time.Time) ([]xml.Node, error) {
-    if len(f.Items) == 0 {
+func (f *RssFeed) LatestAt(n int, t time.Time) ([]Item, error) {
+    if len(f.items) == 0 {
         return nil, errors.New("no items in feed")
     }
 
     f.TimeShift()
     i := -1
-    for j, it := range f.Items {
-        d, err := f.pubDate(&it)
+    for j, it := range f.Items() {
+        d, err := it.PubDate()
+        //d, err := f.pubDate(&it)
         if err != nil {
             return nil, err
         }
@@ -92,42 +151,20 @@ func (f *Feed) LatestAt(n int, t time.Time) ([]xml.Node, error) {
     }
 
     end := i + n
-    if realend := len(f.Items) - 1; realend < end {
+    if realend := len(f.items) - 1; realend < end {
         end = realend
     }
 
-    return f.Items[i : end], nil
+    return f.Items()[i : end], nil
 }
 
-func (f *Feed) parseDate(s string) (time.Time, error) {
-    if f.dtInd < 0 || len(dateTypes) >= f.dtInd {
-        f.dtInd = 0
-    }
-    startdt := f.dtInd
-    for {
-        date, err := time.Parse(dateTypes[f.dtInd], s)
+func parseDate(s string) (time.Time, error) {
+    for _, typ := range(dateTypes) {
+        date, err := time.Parse(typ, s)
         if err == nil {
             return date, nil
         }
-        f.dtInd++
-        if f.dtInd >= len(dateTypes) {
-            f.dtInd = 0
-        }
-        if f.dtInd == startdt {
-            zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-            return zdate, errors.New("invalid date format")
-        }
     }
-}
-
-func (f *Feed) pubDate(n *xml.Node) (time.Time, error) {
     zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    d, err := (*n).Search("pubDate")
-    if err != nil {
-        return zdate, err
-    }
-    if len(d) != 1 {
-        return zdate, errors.New("no pubdate" + string(len(d)))
-    }
-    return f.parseDate(d[0].Content())
+    return zdate, errors.New("invalid date format")
 }

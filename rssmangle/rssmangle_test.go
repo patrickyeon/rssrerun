@@ -142,8 +142,8 @@ func NoTestIngest(t *testing.T) {
     if err != nil {
         t.Error("error parsing feed")
     }
-    if len(feed.Items) != 10 {
-        t.Errorf("expected %d items, got %d", 10, len(feed.Items))
+    if len(feed.items) != 10 {
+        t.Errorf("expected %d items, got %d", 10, len(feed.items))
     }
     fb := feed.Bytes()
     if len(rssb) == len(fb) {
@@ -164,8 +164,8 @@ func TestCompare(t *testing.T) {
     if err != nil {
         t.Error("errored out parsing feed")
     }
-    if len(feed.Items) != 10 {
-        t.Errorf("expected %d items, got %d", 10, len(feed.Items))
+    if n := len(feed.Items()); n != 10 {
+        t.Errorf("expected %d items, got %d", 10, n)
     }
     fb := feed.Bytes()
     if err != nil {
@@ -206,7 +206,7 @@ func TestHandleCDATA(t *testing.T) {
     rss.AddPost("<title>post-CDATA</title>")
     feed, _ := NewFeed(rss.Bytes(), nil)
 
-    if got := len(feed.Items); got != 4 {
+    if got := len(feed.Items()); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d\n", 4, got)
         t.Error(string(feed.Bytes()))
     }
@@ -224,14 +224,14 @@ func TestTimeShift(t *testing.T) {
     if err != nil {
         t.Error(err)
     }
-    if got := len(shifted.Items); got != len(feed.Items) {
-        t.Errorf("expected %d items, got %d\n", len(feed.Items), got)
+    if got := len(shifted.Items()); got != len(feed.Items()) {
+        t.Errorf("expected %d items, got %d\n", len(feed.Items()), got)
     }
 
     expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
-    for i := (len(shifted.Items) - 1); i >= 0; i-- {
-        it := shifted.Items[i]
-        pd, err := feed.pubDate(&it)
+    for i := (len(shifted.Items()) - 1); i >= 0; i-- {
+        it := shifted.Item(i)
+        pd, err := it.PubDate()
         if err != nil {
             t.Error(err)
         } else {
@@ -260,12 +260,12 @@ func TestLatestFive(t *testing.T) {
         t.Errorf("expected 5 items, got %d\n", len(items))
     }
 
-    prev, err := feed.pubDate(&items[0])
+    prev, err := items[0].PubDate()
     if err != nil {
         t.Fatal(err)
     }
     for i, _ := range items {
-        itdate, err := feed.pubDate(&items[i])
+        itdate, err := items[i].PubDate()
         if err != nil {
             t.Fatal(err)
         }
