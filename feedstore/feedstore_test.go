@@ -52,7 +52,10 @@ func TestStoreItems(t *testing.T) {
     if s.NumItems(url) != 0 {
         t.Fatal("empty store was not actually empty")
     }
-    s.CreateIndex(url)
+    _, err := s.CreateIndex(url)
+    if err != nil {
+        t.Fatal(err)
+    }
 
     items, _, err := createItems(nIt, startDate())
     if err != nil {

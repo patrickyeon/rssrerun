@@ -31,16 +31,22 @@ type Index struct {
     Guids []string `json:"guids"`
     Others map[string]string `json:"others"`
     Meta map[string]string `json:"meta"`
+    offsets map[string]int64
 }
 
 /* store subdirectory:
 /index.json (info)
+/offsets.json (where in files items are
+/0.dat (items 0-9)
+/1.dat (items 1-19)
+ [...]
+/n.dat (items n*10 - max)
+
 /0.xml (items 0-9)
 /1.xml (items 1-19)
  [...]
 /n.xml (items n*10 - max)
- items are stored as <item> elements, oldest first, as siblings under one parent
-  <xml> tag.
+ items are stored as <item> elements, oldest first
 */
 
 type Store struct {
@@ -93,6 +99,9 @@ func fileof(s *Store, ind Index, item int) string {
     if item == -1 {
         // special case, index
         retval += "index.json"
+    } else if item == -2 {
+        // another special case, offsets
+        retval += "offsets.json"
     } else if item >= 0 {
         retval += strconv.Itoa(item / 10) + ".xml"
     }
@@ -118,6 +127,19 @@ func (s *Store) indexFor(url string) (Index, error) {
         return Index{}, errors.New("couldn't find url")
     }
 
+    offsets, err := os.Open(fileof(s, ind, -2))
+    if err != nil {
+        return Index{}, err
+    }
+    dat, err := ioutil.ReadAll(offsets)
+    if err != nil {
+        return Index{}, err
+    }
+    err = json.Unmarshal(dat, &(ind.offsets))
+    if err != nil {
+        return Index{}, err
+    }
+
     return ind, nil
 }
 
@@ -132,7 +154,19 @@ func (s *Store) indexForHash(hash string) (Index, error) {
     }
     ind := Index{}
     json.Unmarshal(dat, &ind)
-    _ = index.Close()
+    index.Close()
+    offsets, err := os.Open(fileof(s, ind, -2))
+    if err != nil {
+        return Index{}, err
+    }
+    dat, err = ioutil.ReadAll(offsets)
+    if err != nil {
+        return Index{}, err
+    }
+    if err = json.Unmarshal(dat, &(ind.offsets)); err != nil {
+        return Index{}, err
+    }
+
     return ind, nil
 }
 
@@ -161,6 +195,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
     } else {
         ind.Hash = hash
     }
+    ind.offsets = make(map[string]int64, 0)
     err = os.Mkdir(s.rootdir + ind.Hash, os.ModeDir | os.ModePerm)
     if err != nil {
         return Index{}, err
@@ -191,7 +226,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
     }
 
     ret := make([]xml.Node, end - start)
-    var items []xml.Node
+    var ftxt []byte
 
     fname := ""
     for i := start; i < end; i++ {
@@ -201,25 +236,24 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
             if err != nil {
                 return nil, err
             }
-            ftxt, err := ioutil.ReadAll(f)
+            ftxt, err = ioutil.ReadAll(f)
             f.Close()
             if err != nil {
                 return nil, err
             }
-            // TODO this is all fairly janky, as we build up an xml document,
-            //      and then parse it just to get it split into items.
-            ftxt = append([]byte("<xml>\n"), ftxt...)
-            ftxt = append(ftxt, []byte("</xml>")...)
-            itXml, err := gokogiri.ParseXml(ftxt)
-            if err != nil {
-                return nil, err
-            }
-            items, err = itXml.Root().Search("//item")
-            if err != nil {
-                return nil, err
-            }
         }
-        ret[i - start] = items[i % 10]
+        endbyte := index.offsets[strconv.Itoa(i + 1)]
+        if endbyte == 0 {
+            endbyte = int64(len(ftxt))
+        }
+        // creating and parsing xml as a stopgap before we use proper structs
+        inner := ftxt[index.offsets[strconv.Itoa(i)]:endbyte]
+        total := append(append([]byte("<xml>"), inner...), []byte("</xml>")...)
+        itXml, err := gokogiri.ParseXml(total)
+        if err != nil {
+            return nil, err
+        }
+        ret[i - start] = itXml.Root().FirstChild()
     }
     return ret, nil
 }
@@ -233,7 +267,11 @@ func (s *Store) NumItems(url string) int {
 }
 
 func (s *Store) saveIndex(index Index) error {
-    ser, err := json.Marshal(index)
+    serind, err := json.Marshal(index)
+    if err != nil {
+        return err
+    }
+    offind, err := json.Marshal(index.offsets)
     if err != nil {
         return err
     }
@@ -243,7 +281,13 @@ func (s *Store) saveIndex(index Index) error {
         return err
     }
 
-    f.Write(ser)
+    f.Write(serind)
+    f.Close()
+    f, err = os.Create(s.rootdir + index.Hash + "/offsets.json")
+    if err != nil {
+        return err
+    }
+    f.Write(offind)
     f.Close()
     return nil
 }
@@ -274,7 +318,13 @@ func (s *Store) Update(url string, items []xml.Node) error {
     if err != nil {
         return err
     }
+    // FIXME will this lead to trying to open the index? Why doesn't it?
     lastind := ind.Count - 1
+    _, err = os.OpenFile(fileof(s, ind, -2),
+                                   os.O_APPEND | os.O_WRONLY, os.ModePerm)
+    if err != nil {
+        return err
+    }
     storefile, err := os.OpenFile(fileof(s, ind, lastind),
                                   os.O_APPEND | os.O_WRONLY, os.ModePerm)
     if os.IsNotExist(err) {
@@ -284,6 +334,8 @@ func (s *Store) Update(url string, items []xml.Node) error {
         return err
     }
 
+    stat, _ := storefile.Stat()
+    curPos := stat.Size()
     // keep track of guids in a set
     guids := make(map[string]bool)
     for _, g := range ind.Guids {
@@ -306,13 +358,16 @@ func (s *Store) Update(url string, items []xml.Node) error {
             if err != nil {
                 return err
             }
+            curPos = 0
         }
-        _, err = storefile.WriteString(it.String() + "\n")
+        nWritten, err := storefile.WriteString(it.String() + "\n")
         if err != nil {
             storefile.Close()
             return err
         }
         guids[guid] = true
+        ind.offsets[strconv.Itoa(lastind)] = curPos
+        curPos += int64(nWritten)
     }
     ind.Guids = make([]string, len(guids))
     i := 0
