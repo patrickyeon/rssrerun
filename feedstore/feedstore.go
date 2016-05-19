@@ -11,7 +11,6 @@ import (
     "strconv"
 
     "github.com/moovweb/gokogiri"
-    "github.com/moovweb/gokogiri/xml"
 )
 
 /* index json obj:
@@ -208,7 +207,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) Get(url string, start int, end int) ([]xml.Node, error) {
+func (s *Store) Get(url string, start int, end int) ([][]byte, error) {
     // we will return an array of items, oldest first, of length (end - start)
     index, err := s.indexFor(url)
     if err != nil {
@@ -217,7 +216,7 @@ func (s *Store) Get(url string, start int, end int) ([]xml.Node, error) {
     return s.getInd(index, start, end)
 }
 
-func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
+func (s *Store) getInd(index Index, start int, end int) ([][]byte, error) {
     if start < 0 || end <= start {
         return nil, errors.New("invalid range")
     }
@@ -225,7 +224,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
         return nil, errors.New("invalid range")
     }
 
-    ret := make([]xml.Node, end - start)
+    ret := make([][]byte, end - start)
     var ftxt []byte
 
     fname := ""
@@ -246,14 +245,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]xml.Node, error) {
         if endbyte == 0 {
             endbyte = int64(len(ftxt))
         }
-        // creating and parsing xml as a stopgap before we use proper structs
-        inner := ftxt[index.offsets[strconv.Itoa(i)]:endbyte]
-        total := append(append([]byte("<xml>"), inner...), []byte("</xml>")...)
-        itXml, err := gokogiri.ParseXml(total)
-        if err != nil {
-            return nil, err
-        }
-        ret[i - start] = itXml.Root().FirstChild()
+        ret[i - start] = ftxt[index.offsets[strconv.Itoa(i)]:endbyte]
     }
     return ret, nil
 }
@@ -292,8 +284,11 @@ func (s *Store) saveIndex(index Index) error {
     return nil
 }
 
-func getGuid(item xml.Node) (string, error) {
+func getGuid(itm []byte) (string, error) {
     // come on, let's hope for a proper guid
+
+    x, _ := gokogiri.ParseXml(append(append([]byte("<xml>"), itm...), []byte("</xml>")...))
+    item := x.Root().FirstChild()
     gtag, err := item.Search("guid")
     if err == nil && len(gtag) > 0 {
         return gtag[0].Content(), nil
@@ -307,12 +302,12 @@ func getGuid(item xml.Node) (string, error) {
         return "", err
     }
     if len(link) == 0 || len(title) == 0 {
-        return "", errors.New("can't build a guid")
+        return "", errors.New("can't build a guid: " + item.String())
     }
     return title[0].Content() + " - " + link[0].Content(), nil
 }
 
-func (s *Store) Update(url string, items []xml.Node) error {
+func (s *Store) Update(url string, items [][]byte) error {
     // items must be passed in oldest first
     ind, err := s.indexFor(url)
     if err != nil {
@@ -360,7 +355,7 @@ func (s *Store) Update(url string, items []xml.Node) error {
             }
             curPos = 0
         }
-        nWritten, err := storefile.WriteString(it.String() + "\n")
+        nWritten, err := storefile.WriteString(string(it) + "\n")
         if err != nil {
             storefile.Close()
             return err
