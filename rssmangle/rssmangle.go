@@ -60,7 +60,24 @@ func (f *RssFeed) Item(n int) Item {
 }
 
 func (item *RssItem) Guid() (string, error) {
-    return "", nil
+    // come on, let's hope for a proper guid
+    gtag, err := item.src.Search("guid")
+    if err == nil && len(gtag) > 0 {
+        return gtag[0].Content(), nil
+    }
+    // no guid tag? just concat title and link
+    title, err := item.src.Search("title")
+    if err != nil {
+        return "", err
+    }
+    link, err := item.src.Search("link")
+    if err != nil {
+        return "", err
+    }
+    if len(link) == 0 || len(title) == 0 {
+        return "", errors.New("can't build a guid")
+    }
+    return title[0].Content() + " - " + link[0].Content(), nil
 }
 
 func (item *RssItem) PubDate() (time.Time, error) {

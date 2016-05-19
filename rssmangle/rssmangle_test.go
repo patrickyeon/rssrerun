@@ -1,6 +1,7 @@
 package rssmangle
 
 import (
+    "strconv"
     "testing"
     "time"
 
@@ -284,5 +285,43 @@ func TestLatestFive(t *testing.T) {
     }
     if future.Before(now) {
         t.Fatal("still item(s) available before 'now'")
+    }
+}
+
+func TestGuids(t *testing.T) {
+    rss := testhelp.CreateAndPopulateRSS(10, startDate())
+    feed, _ := NewFeed(rss.Bytes(), nil)
+
+    for i, item := range feed.Items() {
+        g, err := item.Guid()
+        if err != nil {
+            t.Fatalf("Item %d: %v", i, err)
+        }
+        if strconv.Itoa(10 - i) != g {
+            // 10 - i because items count backwards
+            t.Fatalf("item %d has wrong guid: %s should be %d", i, g, 10 - i)
+        }
+    }
+}
+
+func TestCreativeGuids(t *testing.T) {
+    rss := testhelp.CreateIncompleteRSS(10, startDate(), true, false)
+    feed, _ := NewFeed(rss.Bytes(), nil)
+
+    guidSet := make(map[string]bool, 10)
+
+    for _, item := range feed.Items() {
+        g, err := item.Guid()
+        if err != nil {
+            t.Fatal(err)
+        }
+        guidSet[g] = true
+    }
+    if len(guidSet) != 10 {
+        t.Errorf("guids not created successfully (%d/%d):", len(guidSet), 10)
+        for g := range guidSet {
+            t.Error(g)
+        }
+        t.Fail()
     }
 }
