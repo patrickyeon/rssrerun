@@ -34,7 +34,10 @@ func TestTimeShift(t *testing.T) {
     rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
 
     feed, _ := NewFeed(rss.Bytes(), rerun)
-    feed.TimeShift()
+    err := feed.TimeShift()
+    if err != nil {
+        t.Fatal(err)
+    }
 
     shifted, err := NewFeed(feed.Bytes(), nil)
     if err != nil {

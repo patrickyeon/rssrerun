@@ -15,7 +15,7 @@ var (
 
 type Item interface {
     PubDate() (time.Time, error)
-    NewPubDate(date time.Time) (error)
+    SetPubDate(date time.Time) (error)
     Guid() (string, error)
     String() string
 }
@@ -82,17 +82,24 @@ func (item *RssItem) Guid() (string, error) {
 
 func (item *RssItem) PubDate() (time.Time, error) {
     zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    d, err := item.src.Search("pubDate")
-    if err != nil {
-        return zdate, err
+    for _, str := range []string{"pubDate", "pubdate", "PubDate", "PUBDATE"} {
+        d, err := item.src.Search(str)
+        if err == nil && len(d) > 0 {
+            return parseDate(d[0].Content())
+        }
     }
-    if len(d) != 1 {
-        return zdate, errors.New("no pubdate" + string(len(d)))
-    }
-    return parseDate(d[0].Content())
+    return zdate, errors.New("no pubdate")
 }
 
-func (item *RssItem) NewPubDate(date time.Time) (error) {
+func (item *RssItem) SetPubDate(date time.Time) (error) {
+    pdtag, err := item.src.Search("pubDate")
+    if err != nil {
+        return err
+    }
+    if len(pdtag) == 0 {
+        return errors.New("no pubdate tag")
+    }
+    pdtag[0].SetContent(date.Format(time.RFC822))
     return nil
 }
 
@@ -122,8 +129,8 @@ func (f *RssFeed) TimeShift() error {
         return nil
     }
     for i := (len(f.items) - 1); i >= 0; i-- {
-        it := f.items[i]
-        pd, err := it.Search("pubDate")
+        it := f.Item(i)
+        olddate, err := it.PubDate()
         if err != nil {
             return err
         }
@@ -131,14 +138,12 @@ func (f *RssFeed) TimeShift() error {
         if err != nil {
             return err
         }
-        olddate, err := parseDate(pd[0].Content())
-        if err != nil {
-            return err
-        }
         if olddate.After(date) {
             break
         }
-        pd[0].SetContent(date.Format(dateTypes[f.dtInd]))
+        if err = it.SetPubDate(date); err != nil {
+            return err
+        }
     }
     f.timeshifted = true
     return nil
