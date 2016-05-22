@@ -245,6 +245,8 @@ func (s *Store) getInd(index Index, start int, end int) ([][]byte, error) {
         if endbyte == 0 {
             endbyte = int64(len(ftxt))
         }
+        // ignore the newline we added when storing in Update()
+        endbyte -= 1
         ret[i - start] = ftxt[index.offsets[strconv.Itoa(i)]:endbyte]
     }
     return ret, nil

@@ -2,7 +2,6 @@ package feedstore
 
 import (
     "os"
-    "strings"
     "testing"
     "time"
 
@@ -89,8 +88,15 @@ func gimmeStore() (Store, string, [][]byte) {
 }
 
 func sameish(a []byte, b []byte) bool {
-    // FIXME code should be able to return exact strings, not rely on sameish
-    return strings.TrimSpace(string(a)) == strings.TrimSpace(string(b))
+    if len(a) != len(b) {
+        return false
+    }
+    for i := range a {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
 }
 
 func TestStoreAndRetrieve(t *testing.T) {
