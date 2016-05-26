@@ -13,7 +13,7 @@ func startDate() time.Time {
     return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
 }
 
-func TestHandleCDATA(t *testing.T) {
+func TestRssHandleCDATA(t *testing.T) {
     rss := testhelp.CreateAndPopulateRSS(2, startDate())
     breakText := "<title>pre-CDATA</title><description><![CDATA["
     breakText += "</item><item>this should not be its own item</item>"
@@ -23,17 +23,30 @@ func TestHandleCDATA(t *testing.T) {
     feed, _ := NewFeed(rss.Bytes(), nil)
 
     if got := len(feed.Items()); got != 4 {
-        t.Logf("CDATA parsing failed, expected %d items, got %d\n", 4, got)
+        t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
         t.Error(string(feed.Bytes()))
     }
 }
 
-func TestTimeShift(t *testing.T) {
-    sched := []time.Weekday{time.Sunday, time.Tuesday}
-    rss := testhelp.CreateAndPopulateRSS(10, startDate())
-    rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+func TestRssTimeShift(t *testing.T) {
+    testTimeShift(t, testhelp.CreateAndPopulateRSS(10, startDate()))
+}
 
-    feed, _ := NewFeed(rss.Bytes(), rerun)
+//func TestAtomTimeShift(t *testing.T) {
+//    testTimeShift(t, testhelp.CreateAndPopulateATOM(10, startDate()))
+//}
+
+
+func testTimeShift(t *testing.T, tf testhelp.TestFeed) {
+    sched := []time.Weekday{time.Sunday, time.Tuesday}
+    rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+    expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+    feed, _ := NewFeed(tf.Bytes(), rerun)
+
+    if got := len(feed.Items()); got != len(tf.Items()) {
+        t.Fatalf("expected %d items, got %d", len(tf.Items()), got)
+    }
+
     err := feed.TimeShift()
     if err != nil {
         t.Fatal(err)
@@ -44,10 +57,9 @@ func TestTimeShift(t *testing.T) {
         t.Error(err)
     }
     if got := len(shifted.Items()); got != len(feed.Items()) {
-        t.Errorf("expected %d items, got %d\n", len(feed.Items()), got)
+        t.Fatalf("expected %d items, got %d", len(feed.Items()), got)
     }
 
-    expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
     for i := (len(shifted.Items()) - 1); i >= 0; i-- {
         it := shifted.Item(i)
         pd, err := it.PubDate()
@@ -64,13 +76,18 @@ func TestTimeShift(t *testing.T) {
     }
 }
 
-func TestLatestFive(t *testing.T) {
-    sched := []time.Weekday{time.Sunday, time.Tuesday}
+func TestRssLatestFive(t *testing.T) {
     rss := testhelp.CreateAndPopulateRSS(100, startDate().AddDate(-3, 0, 0))
-    rerun := datesource.NewDateSource(startDate(), sched)
+    testLatestFive(t, rss)
+}
 
-    feed, _ := NewFeed(rss.Bytes(), rerun)
+
+func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
+    sched := []time.Weekday{time.Sunday, time.Tuesday}
+    rerun := datesource.NewDateSource(startDate(), sched)
+    feed, _ := NewFeed(tf.Bytes(), rerun)
     now := startDate().AddDate(0, 4, 0)
+
     items, err := feed.LatestAt(5, now)
     if err != nil {
         t.Fatal(err)
@@ -97,7 +114,15 @@ func TestLatestFive(t *testing.T) {
         prev = itdate
     }
 
-    future, err := feed.d.NextDate()
+    var d *datesource.DateSource
+    // TODO messy here, seeing as I need to poke at the internals
+    switch feed := feed.(type) {
+    default:
+        t.Fatal("unknown feed type")
+    case *RssFeed:
+        d = feed.d
+    }
+    future, err := d.NextDate()
     if err != nil {
         t.Fatal(err)
     }
@@ -106,9 +131,12 @@ func TestLatestFive(t *testing.T) {
     }
 }
 
-func TestGuids(t *testing.T) {
-    rss := testhelp.CreateAndPopulateRSS(10, startDate())
-    feed, _ := NewFeed(rss.Bytes(), nil)
+func TestRssGuids(t *testing.T) {
+    testGuids(t, testhelp.CreateAndPopulateRSS(10, startDate()))
+}
+
+func testGuids(t *testing.T, tf testhelp.TestFeed) {
+    feed, _ := NewFeed(tf.Bytes(), nil)
 
     for i, item := range feed.Items() {
         g, err := item.Guid()
@@ -122,10 +150,13 @@ func TestGuids(t *testing.T) {
     }
 }
 
-func TestCreativeGuids(t *testing.T) {
-    rss := testhelp.CreateIncompleteRSS(10, startDate(), true, false)
-    feed, _ := NewFeed(rss.Bytes(), nil)
+func TestRssCreativeGuids(t *testing.T) {
+    testCreativeGuids(t, testhelp.CreateIncompleteRSS(10, startDate(),
+                                                      true, false))
+}
 
+func testCreativeGuids(t *testing.T, tf testhelp.TestFeed) {
+    feed, _ := NewFeed(tf.Bytes(), nil)
     guidSet := make(map[string]bool, 10)
 
     for _, item := range feed.Items() {

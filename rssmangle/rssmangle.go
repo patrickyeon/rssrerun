@@ -103,7 +103,11 @@ func (item *RssItem) SetPubDate(date time.Time) (error) {
     return nil
 }
 
-func NewFeed(t []byte, d *datesource.DateSource) (*RssFeed, error) {
+func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
+    return newRssFeed(t, d)
+}
+
+func newRssFeed(t []byte, d *datesource.DateSource) (*RssFeed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
         return nil, err
