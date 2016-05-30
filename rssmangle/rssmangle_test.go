@@ -135,8 +135,19 @@ func TestRssGuids(t *testing.T) {
     testGuids(t, testhelp.CreateAndPopulateRSS(10, startDate()))
 }
 
+func TestAtomGuids(t *testing.T) {
+    testGuids(t, testhelp.CreateAndPopulateATOM(10, startDate()))
+}
+
 func testGuids(t *testing.T, tf testhelp.TestFeed) {
-    feed, _ := NewFeed(tf.Bytes(), nil)
+    feed, err := NewFeed(tf.Bytes(), nil)
+
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(feed.Items()) != 10 {
+        t.Fatalf("expected 10 items, got %d", len(feed.Items()))
+    }
 
     for i, item := range feed.Items() {
         g, err := item.Guid()

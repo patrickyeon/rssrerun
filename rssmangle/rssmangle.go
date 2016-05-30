@@ -13,13 +13,6 @@ var (
                           time.RFC1123, time.RFC1123Z}
 )
 
-type Item interface {
-    PubDate() (time.Time, error)
-    SetPubDate(date time.Time) (error)
-    Guid() (string, error)
-    String() string
-}
-
 type Feed interface {
     TimeShift() error
 
@@ -28,11 +21,6 @@ type Feed interface {
     LatestAt(n int, t time.Time) ([]Item, error)
 
     Bytes() []byte
-
-}
-
-type RssItem struct {
-    src xml.Node
 }
 
 type RssFeed struct {
@@ -51,68 +39,22 @@ func (f *RssFeed) Items() []Item {
     return ret
 }
 
-func (item *RssItem) String() string {
-    return item.src.String()
-}
-
 func (f *RssFeed) Item(n int) Item {
     return &RssItem{f.items[n]}
 }
 
-func (item *RssItem) Guid() (string, error) {
-    // come on, let's hope for a proper guid
-    gtag, err := item.src.Search("guid")
-    if err == nil && len(gtag) > 0 {
-        return gtag[0].Content(), nil
-    }
-    // no guid tag? just concat title and link
-    title, err := item.src.Search("title")
-    if err != nil {
-        return "", err
-    }
-    link, err := item.src.Search("link")
-    if err != nil {
-        return "", err
-    }
-    if len(link) == 0 || len(title) == 0 {
-        return "", errors.New("can't build a guid")
-    }
-    return title[0].Content() + " - " + link[0].Content(), nil
-}
-
-func (item *RssItem) PubDate() (time.Time, error) {
-    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    for _, str := range []string{"pubDate", "pubdate", "PubDate", "PUBDATE"} {
-        d, err := item.src.Search(str)
-        if err == nil && len(d) > 0 {
-            return parseDate(d[0].Content())
-        }
-    }
-    return zdate, errors.New("no pubdate")
-}
-
-func (item *RssItem) SetPubDate(date time.Time) (error) {
-    pdtag, err := item.src.Search("pubDate")
-    if err != nil {
-        return err
-    }
-    if len(pdtag) == 0 {
-        return errors.New("no pubdate tag")
-    }
-    pdtag[0].SetContent(date.Format(time.RFC822))
-    return nil
-}
-
-func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
-    return newRssFeed(t, d)
-}
-
-func newRssFeed(t []byte, d *datesource.DateSource) (*RssFeed, error) {
-    doc, err := gokogiri.ParseXml(t)
+func newRssFeed(doc xml.Document, d *datesource.DateSource) (*RssFeed, error) {
+    channels, err := doc.Root().Search("channel")
     if err != nil {
         return nil, err
     }
-    // TODO check assumptions (one channel)
+    if len(channels) == 0 {
+        return nil, errors.New("No <channel> tag for RSS feed")
+    }
+    if len(channels) > 1 {
+        return nil, errors.New("Too many <channel> tags for RSS feed")
+    }
+
     f := new(RssFeed)
     f.root = doc.Root()
     f.items, err = doc.Root().Search("//channel//item")
@@ -184,13 +126,47 @@ func (f *RssFeed) LatestAt(n int, t time.Time) ([]Item, error) {
     return f.Items()[i : end], nil
 }
 
-func parseDate(s string) (time.Time, error) {
-    for _, typ := range(dateTypes) {
-        date, err := time.Parse(typ, s)
-        if err == nil {
-            return date, nil
-        }
+type AtomFeed struct {
+    root xml.Node
+    entries []xml.Node
+    d *datesource.DateSource
+    timeshifted bool
+    dtInd int
+}
+
+func (a *AtomFeed) TimeShift() error {
+    return errors.New("not implemented")
+}
+func (a *AtomFeed) Items() []Item {
+    return nil
+}
+func (a *AtomFeed) Item(n int) Item {
+    return nil
+}
+func (a *AtomFeed) LatestAt(n int, t time.Time) ([]Item, error) {
+    return nil, errors.New("not implemented")
+}
+func (a *AtomFeed) Bytes() []byte {
+    return nil
+}
+
+func newAtomFeed(doc xml.Document, d *datesource.DateSource) (*AtomFeed, error) {
+    return nil, errors.New("atom parse not implemented")
+}
+
+func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
+    doc, err := gokogiri.ParseXml(t)
+    if err != nil {
+        return nil, err
     }
-    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    return zdate, errors.New("invalid date format")
+    rss, rssErr := newRssFeed(doc, d)
+    if rssErr == nil {
+        return rss, nil
+    }
+    atom, atomErr := newAtomFeed(doc, d)
+    if atomErr == nil {
+        return atom, nil
+    }
+    return nil, errors.New("Couldn't parse feed as RSS: \"" + rssErr.Error() +
+                           "\", nor as ATOM: \"" + atomErr.Error() + "\"")
 }
