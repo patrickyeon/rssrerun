@@ -87,7 +87,9 @@ func CreateIncompleteATOM(n int, d time.Time, addPublished bool) *ATOM {
             postText += "<published>" + pubdate + "</published>"
         }
         postText += "<updated>" + pubdate + "</updated>"
-        postText += "<id>url://foo.bar/rss/" + strconv.Itoa(i) + "</id>"
+        //postText += "<id>url://foo.bar/rss/" + strconv.Itoa(i) + "</id>"
+        // yeah, should be a real URI, but for testing let's do this
+        postText += "<id>" + strconv.Itoa(i) + "</id>"
         postText += "<summary>originally published " + pubdate
         postText += "</summary>"
         ret.AddPost(postText)

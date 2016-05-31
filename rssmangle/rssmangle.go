@@ -96,34 +96,7 @@ func (f *RssFeed) TimeShift() error {
 }
 
 func (f *RssFeed) LatestAt(n int, t time.Time) ([]Item, error) {
-    if len(f.items) == 0 {
-        return nil, errors.New("no items in feed")
-    }
-
-    f.TimeShift()
-    i := -1
-    for j, it := range f.Items() {
-        d, err := it.PubDate()
-        //d, err := f.pubDate(&it)
-        if err != nil {
-            return nil, err
-        }
-        if !d.After(t) {
-            i = j
-            break
-        }
-    }
-    if i == -1 {
-        // all of the items are after time t
-        return nil, errors.New("latest time comes before oldest item")
-    }
-
-    end := i + n
-    if realend := len(f.items) - 1; realend < end {
-        end = realend
-    }
-
-    return f.Items()[i : end], nil
+    return latestAt(f, n, t)
 }
 
 type AtomFeed struct {
@@ -135,23 +108,66 @@ type AtomFeed struct {
 }
 
 func (a *AtomFeed) TimeShift() error {
-    return errors.New("not implemented")
-}
-func (a *AtomFeed) Items() []Item {
-    return nil
-}
-func (a *AtomFeed) Item(n int) Item {
-    return nil
-}
-func (a *AtomFeed) LatestAt(n int, t time.Time) ([]Item, error) {
-    return nil, errors.New("not implemented")
-}
-func (a *AtomFeed) Bytes() []byte {
+    if a.timeshifted {
+        return nil
+    }
+    for i := (len(a.entries) - 1); i >= 0; i-- {
+        it := a.Item(i)
+        olddate, err := it.PubDate()
+        if err != nil {
+            return err
+        }
+        date, err := a.d.NextDate()
+        if err != nil {
+            return err
+        }
+        if olddate.After(date) {
+            break
+        }
+        if err = it.SetPubDate(date); err != nil {
+            return err
+        }
+    }
+    a.timeshifted = true
     return nil
 }
 
+func (a *AtomFeed) Items() []Item {
+    ret := make([]Item, len(a.entries))
+    for i, it := range a.entries {
+        ret[i] = &AtomItem{it}
+    }
+    return ret
+}
+
+func (a *AtomFeed) Item(n int) Item {
+    return &AtomItem{a.entries[n]}
+}
+
+func (a *AtomFeed) LatestAt(n int, t time.Time) ([]Item, error) {
+    return latestAt(a, n, t)
+}
+
+func (a *AtomFeed) Bytes() []byte {
+    return a.root.ToBuffer(nil)
+}
+
 func newAtomFeed(doc xml.Document, d *datesource.DateSource) (*AtomFeed, error) {
-    return nil, errors.New("atom parse not implemented")
+    if doc.Root().Name() != "feed" {
+        return nil, errors.New("<feed> tag missing or not root for Atom feed")
+    }
+    a := new(AtomFeed)
+    a.root = doc.Root()
+    var err error
+    a.entries, err = doc.Root().Search("//*[local-name()='entry']")
+    if err != nil {
+        return nil, err
+    }
+    a.d = d
+    a.timeshifted = false
+    a.dtInd = 0
+
+    return a, nil
 }
 
 func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
@@ -169,4 +185,34 @@ func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
     }
     return nil, errors.New("Couldn't parse feed as RSS: \"" + rssErr.Error() +
                            "\", nor as ATOM: \"" + atomErr.Error() + "\"")
+}
+
+func latestAt(f Feed, n int, t time.Time) ([]Item, error) {
+    if len(f.Items()) == 0 {
+        return nil, errors.New("no items in feed")
+    }
+
+    f.TimeShift()
+    i := -1
+    for j, it := range f.Items() {
+        d, err := it.PubDate()
+        if err != nil {
+            return nil, err
+        }
+        if !d.After(t) {
+            i = j
+            break
+        }
+    }
+    if i == -1 {
+        // all of the items are after time t
+        return nil, errors.New("latest time comes before oldest item")
+    }
+
+    end := i + n
+    if realend := len(f.Items()) - 1; realend < end {
+        end = realend
+    }
+
+    return f.Items()[i : end], nil
 }

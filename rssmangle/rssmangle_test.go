@@ -28,13 +28,28 @@ func TestRssHandleCDATA(t *testing.T) {
     }
 }
 
+func TestAtomHandleCDATA(t *testing.T) {
+    atom := testhelp.CreateAndPopulateATOM(2, startDate())
+    breakText := "<id>foo://bar/bazprecdat</id><content><![CDATA["
+    breakText += "</entry><entry>this should not be its own entry</entry>"
+    breakText += "]]></content><title>pre CDATA</title>"
+    atom.AddPost(breakText)
+    atom.AddPost("<id>foo://bar/bazpostcdat</id><title>post CDATA</title>")
+    feed, _ := NewFeed(atom.Bytes(), nil)
+
+    if got := len(feed.Items()); got != 4 {
+        t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
+        t.Error(string(feed.Bytes()))
+    }
+}
+
 func TestRssTimeShift(t *testing.T) {
     testTimeShift(t, testhelp.CreateAndPopulateRSS(10, startDate()))
 }
 
-//func TestAtomTimeShift(t *testing.T) {
-//    testTimeShift(t, testhelp.CreateAndPopulateATOM(10, startDate()))
-//}
+func TestAtomTimeShift(t *testing.T) {
+    testTimeShift(t, testhelp.CreateAndPopulateATOM(10, startDate()))
+}
 
 
 func testTimeShift(t *testing.T, tf testhelp.TestFeed) {
@@ -81,6 +96,10 @@ func TestRssLatestFive(t *testing.T) {
     testLatestFive(t, rss)
 }
 
+func TestAtomLatestFive(t *testing.T) {
+    atom := testhelp.CreateAndPopulateATOM(100, startDate().AddDate(-3, 0, 0))
+    testLatestFive(t, atom)
+}
 
 func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
     sched := []time.Weekday{time.Sunday, time.Tuesday}
@@ -121,6 +140,8 @@ func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
         t.Fatal("unknown feed type")
     case *RssFeed:
         d = feed.d
+    case *AtomFeed:
+        d = feed.d
     }
     future, err := d.NextDate()
     if err != nil {
@@ -146,6 +167,7 @@ func testGuids(t *testing.T, tf testhelp.TestFeed) {
         t.Fatal(err)
     }
     if len(feed.Items()) != 10 {
+        t.Error(feed.Items())
         t.Fatalf("expected 10 items, got %d", len(feed.Items()))
     }
 
@@ -165,6 +187,8 @@ func TestRssCreativeGuids(t *testing.T) {
     testCreativeGuids(t, testhelp.CreateIncompleteRSS(10, startDate(),
                                                       true, false))
 }
+
+// we shouldn't need creative guids for atom
 
 func testCreativeGuids(t *testing.T, tf testhelp.TestFeed) {
     feed, _ := NewFeed(tf.Bytes(), nil)

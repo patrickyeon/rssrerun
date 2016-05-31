@@ -71,19 +71,31 @@ type AtomItem struct {
 }
 
 func (item *AtomItem) PubDate() (time.Time, error) {
-    return time.Unix(0, 0), errors.New("not implemented")
+    published, err := getChild(item.src, xpath("published"))
+    if err != nil {
+        return time.Unix(0, 0), err
+    }
+    return parseDate(published.Content())
 }
 
 func (item *AtomItem) SetPubDate(date time.Time) error {
-    return errors.New("not implemented")
+    published, err := getChild(item.src, xpath("published"))
+    if err != nil {
+        return err
+    }
+    return published.SetContent(date.Format(time.RFC822))
 }
 
 func (item *AtomItem) Guid() (string, error) {
-    return "", errors.New("not implemented")
+    id, err := getChild(item.src, xpath("id"))
+    if err != nil {
+        return "", err
+    }
+    return id.Content(), nil
 }
 
 func (item *AtomItem) String() string {
-    return ""
+    return item.src.String()
 }
 
 
@@ -96,4 +108,19 @@ func parseDate(s string) (time.Time, error) {
     }
     zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
     return zdate, errors.New("invalid date format")
+}
+
+func xpath(s string) string {
+    return "*[local-name()='" + s + "']"
+}
+
+func getChild(parent xml.Node, tagName string) (xml.Node, error) {
+    ret, err := parent.Search(tagName)
+    if err != nil {
+        return nil, err
+    }
+    if len(ret) == 0 {
+        return nil, errors.New("no <" + tagName + "> tag found")
+    }
+    return ret[0], nil
 }
