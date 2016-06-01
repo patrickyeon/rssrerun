@@ -29,17 +29,17 @@ func emptyStore() Store {
 
 func createItems(n int, start time.Time) ([][]byte, []string, error) {
     rss := testhelp.CreateAndPopulateRSS(n, start)
-    itemBytes := make([][]byte, len(rss.Items))
-    for i, item := range rss.Items {
+    itemBytes := make([][]byte, len(rss.Items()))
+    for i, item := range rss.Items() {
         itemBytes[i] = append(append([]byte("<item>"), []byte(item)...), []byte("</item>")...)
     }
-    return itemBytes, rss.Items, nil
+    return itemBytes, rss.Items(), nil
 }
 
 func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
     retItems := make([]xml.Node, n)
     for i := 0; i < n; i++ {
-        it, err := gokogiri.ParseXml([]byte("<item>" + rss.Items[n - 1 - i] + "</item>"))
+        it, err := gokogiri.ParseXml([]byte("<item>" + rss.Items()[n - 1 - i] + "</item>"))
         if err != nil {
             return nil, err
         }
@@ -239,8 +239,8 @@ func TestNoGuid(t *testing.T) {
     url := "test://testurl.whatnot"
     nItems := 12
     rss := testhelp.CreateIncompleteRSS(nItems, startDate(), true, false)
-    items := make([][]byte, len(rss.Items))
-    for i, item := range rss.Items {
+    items := make([][]byte, len(rss.Items()))
+    for i, item := range rss.Items() {
         items[i] = append(append([]byte("<item>"), []byte(item)...), []byte("</item>")...)
     }
 
