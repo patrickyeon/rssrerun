@@ -28,7 +28,7 @@ func CreateIncompleteRSS(n int, d time.Time, addPD bool, addGuid bool) *RSS {
     ret := new(RSS)
     for i := n; i >= 1; i-- {
         pubdate := d.AddDate(0, 0, 7*(i - 1)).Format(time.RFC822)
-        postText := "<title>post number " + strconv.Itoa(i) + "</title>"
+        postText := "<item><title>post number " + strconv.Itoa(i) + "</title>"
         if addPD {
             postText += "<pubDate>" + pubdate + "</pubDate>"
         }
@@ -37,7 +37,7 @@ func CreateIncompleteRSS(n int, d time.Time, addPD bool, addGuid bool) *RSS {
         }
         postText += "<link>url://foo.bar/rss/" + strconv.Itoa(i) + "</link>"
         postText += "<description>originally published " + pubdate
-        postText += "</description>"
+        postText += "</description></item>"
         ret.AddPost(postText)
     }
     return ret
@@ -51,7 +51,7 @@ func (r *RSS) Text() string {
     retval := "<rss version=\"2.0\"><channel><title>foo</title>\n"
     retval += "<link>http://example.com</link>\n"
     retval += "<description>Foobity foo bar.</description>\n"
-    retval += "<item>" + strings.Join(r.items, "</item>\n<item>") + "</item>\n"
+    retval += strings.Join(r.items, "\n")
     retval += "</channel></rss>\n"
     return retval
 }

@@ -57,7 +57,7 @@ func newRssFeed(doc xml.Document, d *datesource.DateSource) (*RssFeed, error) {
 
     f := new(RssFeed)
     f.root = doc.Root()
-    f.items, err = doc.Root().Search("//channel//item")
+    f.items, err = doc.Root().Search("channel/item")
     if err != nil {
         return nil, err
     }

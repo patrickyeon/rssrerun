@@ -10,6 +10,8 @@ import (
     "os"
     "strconv"
 
+    "rss-rerun/rssmangle"
+
     "github.com/moovweb/gokogiri"
 )
 
@@ -207,7 +209,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) Get(url string, start int, end int) ([][]byte, error) {
+func (s *Store) Get(url string, start int, end int) ([]rssmangle.Item, error) {
     // we will return an array of items, oldest first, of length (end - start)
     index, err := s.indexFor(url)
     if err != nil {
@@ -216,7 +218,7 @@ func (s *Store) Get(url string, start int, end int) ([][]byte, error) {
     return s.getInd(index, start, end)
 }
 
-func (s *Store) getInd(index Index, start int, end int) ([][]byte, error) {
+func (s *Store) getInd(index Index, start int, end int) ([]rssmangle.Item, error) {
     if start < 0 || end <= start {
         return nil, errors.New("invalid range")
     }
@@ -224,7 +226,7 @@ func (s *Store) getInd(index Index, start int, end int) ([][]byte, error) {
         return nil, errors.New("invalid range")
     }
 
-    ret := make([][]byte, end - start)
+    ret := make([]rssmangle.Item, end - start)
     var ftxt []byte
 
     fname := ""
@@ -246,8 +248,12 @@ func (s *Store) getInd(index Index, start int, end int) ([][]byte, error) {
             endbyte = int64(len(ftxt))
         }
         // ignore the newline we added when storing in Update()
-        endbyte -= 1
-        ret[i - start] = ftxt[index.offsets[strconv.Itoa(i)]:endbyte]
+        itemBytes := ftxt[index.offsets[strconv.Itoa(i)] : endbyte - 1]
+        retval, err := rssmangle.MkItem(itemBytes)
+        if err != nil {
+            return nil, err
+        }
+        ret[i - start] = retval
     }
     return ret, nil
 }

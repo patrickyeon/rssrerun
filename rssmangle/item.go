@@ -3,6 +3,8 @@ package rssmangle
 import (
     "errors"
     "time"
+
+    "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
 )
 
@@ -123,4 +125,12 @@ func getChild(parent xml.Node, tagName string) (xml.Node, error) {
         return nil, errors.New("no <" + tagName + "> tag found")
     }
     return ret[0], nil
+}
+
+func MkItem(s []byte) (Item, error) {
+    it, err := gokogiri.ParseXml(s)
+    if err != nil {
+        return nil, err
+    }
+    return &RssItem{it.Root()}, nil
 }

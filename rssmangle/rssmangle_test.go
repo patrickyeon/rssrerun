@@ -13,13 +13,46 @@ func startDate() time.Time {
     return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
 }
 
+func TestCreateRssItem(t *testing.T) {
+    rsstxt := "<item><title>Actual rss item</title>"
+    rsstxt += "<pubDate>" + startDate().Format(time.RFC822) + "</pubDate>"
+    rsstxt += "<guid>32</guid><link>foo://bar.baz/</link>"
+    rsstxt += "<description>bippity boppity boo</description></item>"
+    it, err := MkItem([]byte(rsstxt))
+    if err != nil {
+        t.Fatal(err)
+    }
+    g, err := it.Guid()
+    if err != nil {
+        switch it := it.(type) {
+        default:
+            t.Fatal("foo")
+        case *RssItem:
+            a, _ := it.src.Search("guid")
+            t.Error(strconv.Itoa(len(a)))
+            t.Fatalf("guid should've been 32, but it's %s", g)
+        }
+        t.Fatal(err)
+    }
+    if g != "32" {
+        switch it := it.(type) {
+        default:
+            t.Fatal("foo")
+        case *RssItem:
+            a, _ := it.src.Search("guid")
+            t.Error(strconv.Itoa(len(a)))
+            t.Fatalf("guid should've been 32, but it's %s", g)
+        }
+    }
+}
+
 func TestRssHandleCDATA(t *testing.T) {
     rss := testhelp.CreateAndPopulateRSS(2, startDate())
-    breakText := "<title>pre-CDATA</title><description><![CDATA["
+    breakText := "<item><title>pre-CDATA</title><description><![CDATA["
     breakText += "</item><item>this should not be its own item</item>"
-    breakText += "]]></description"
+    breakText += "]]></description></item>"
     rss.AddPost(breakText)
-    rss.AddPost("<title>post-CDATA</title>")
+    rss.AddPost("<item><title>post-CDATA</title></item>")
     feed, _ := NewFeed(rss.Bytes(), nil)
 
     if got := len(feed.Items()); got != 4 {

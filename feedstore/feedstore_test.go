@@ -5,6 +5,7 @@ import (
     "testing"
     "time"
 
+    "rss-rerun/rssmangle"
     "rss-rerun/testhelp"
 
     "github.com/moovweb/gokogiri"
@@ -31,7 +32,7 @@ func createItems(n int, start time.Time) ([][]byte, []string, error) {
     rss := testhelp.CreateAndPopulateRSS(n, start)
     itemBytes := make([][]byte, len(rss.Items()))
     for i, item := range rss.Items() {
-        itemBytes[i] = append(append([]byte("<item>"), []byte(item)...), []byte("</item>")...)
+        itemBytes[i] = []byte(item)
     }
     return itemBytes, rss.Items(), nil
 }
@@ -39,7 +40,7 @@ func createItems(n int, start time.Time) ([][]byte, []string, error) {
 func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
     retItems := make([]xml.Node, n)
     for i := 0; i < n; i++ {
-        it, err := gokogiri.ParseXml([]byte("<item>" + rss.Items()[n - 1 - i] + "</item>"))
+        it, err := gokogiri.ParseXml([]byte(rss.Items()[n - 1 - i]))
         if err != nil {
             return nil, err
         }
@@ -87,16 +88,14 @@ func gimmeStore() (Store, string, [][]byte) {
     return s, url, items
 }
 
-func sameish(a []byte, b []byte) bool {
-    if len(a) != len(b) {
+func sameish(it rssmangle.Item, b []byte) bool {
+    // calling xml.Node.Root().String() pretty-prints the xml, so we parse and
+    //  then compare pretty-printed outputs
+    bxml, err := gokogiri.ParseXml(b)
+    if err != nil {
         return false
     }
-    for i := range a {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-    return true
+    return it.String() == bxml.Root().String()
 }
 
 func TestStoreAndRetrieve(t *testing.T) {
@@ -105,7 +104,7 @@ func TestStoreAndRetrieve(t *testing.T) {
     for start := 0; start < (nItems - 5); start++ {
         for end := start + 5; end < nItems; end++ {
             for i := 0; i < 5; i++ {
-                t.Log(items[i])
+                t.Log(string(items[i]))
                 its, err := s.Get(url, i, i + 1)
                 if err != nil {
                     t.Fatal(err)
@@ -114,7 +113,7 @@ func TestStoreAndRetrieve(t *testing.T) {
                     t.Fatalf("Expected an item, actually got %d.\n", len(its))
                 }
                 if !sameish(its[0], items[i]) {
-                    t.Error(string(its[0]))
+                    t.Error(its[0].String())
                 }
             }
         }
@@ -188,7 +187,7 @@ func TestUpdateFile(t *testing.T) {
     }
     for i, it := range its {
         if !sameish(it, items[i]) {
-            t.Fatal("::" + string(it) + "::\n--" + string(items[i]) + "--")
+            t.Fatal("::" + it.String() + "::\n--" + string(items[i]) + "--")
         }
     }
     its, err = s.Get(url, 3, nItems)
@@ -200,7 +199,7 @@ func TestUpdateFile(t *testing.T) {
     }
     for i, it := range its {
         if !sameish(it, items[i + 3]) {
-            t.Fatal(string(it))
+            t.Fatal(it.String())
         }
     }
 }
@@ -241,7 +240,7 @@ func TestNoGuid(t *testing.T) {
     rss := testhelp.CreateIncompleteRSS(nItems, startDate(), true, false)
     items := make([][]byte, len(rss.Items()))
     for i, item := range rss.Items() {
-        items[i] = append(append([]byte("<item>"), []byte(item)...), []byte("</item>")...)
+        items[i] = []byte(item)
     }
 
     s.CreateIndex(url)
