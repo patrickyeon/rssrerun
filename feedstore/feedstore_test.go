@@ -28,13 +28,17 @@ func emptyStore() Store {
     return *ret
 }
 
-func createItems(n int, start time.Time) ([][]byte, []string, error) {
+func createItems(n int, start time.Time) ([][]byte, []rssmangle.Item, error) {
     rss := testhelp.CreateAndPopulateRSS(n, start)
     itemBytes := make([][]byte, len(rss.Items()))
     for i, item := range rss.Items() {
         itemBytes[i] = []byte(item)
     }
-    return itemBytes, rss.Items(), nil
+    feed, err := rssmangle.NewFeed(rss.Bytes(), nil)
+    if err != nil {
+        return nil, nil, err
+    }
+    return itemBytes, feed.Items(), nil
 }
 
 func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
@@ -61,14 +65,14 @@ func TestStoreItems(t *testing.T) {
         t.Fatal(err)
     }
 
-    items, _, err := createItems(nIt, startDate())
+    _, items, err := createItems(nIt, startDate())
     if err != nil {
         t.Fatal(err)
     }
 
     err = s.Update(url, items)
     if err != nil {
-        t.Error(string(items[0]))
+        t.Error(items[0].String())
         t.Fatal(err)
     }
 
@@ -81,11 +85,11 @@ func gimmeStore() (Store, string, [][]byte) {
     s := emptyStore()
     url := "test://testurl.whatevs"
     nItems := 25
-    items, _, _ := createItems(nItems, startDate())
+    itemBytes, items, _ := createItems(nItems, startDate())
     s.CreateIndex(url)
     _ = s.Update(url, items)
 
-    return s, url, items
+    return s, url, itemBytes
 }
 
 func sameish(it rssmangle.Item, b []byte) bool {
@@ -145,8 +149,8 @@ func TestHashCollisions(t *testing.T) {
         t.Fatalf("error creating aggressor, %s\n", err)
     }
 
-    vicItems, _, _ := createItems(3, startDate())
-    aggrItems, _, _ := createItems(5, startDate())
+    _, vicItems, _ := createItems(3, startDate())
+    _, aggrItems, _ := createItems(5, startDate())
     err = s.Update(aggrUrl, aggrItems)
     if err != nil {
         t.Fatal(err)
@@ -167,7 +171,7 @@ func TestUpdateFile(t *testing.T) {
     s := emptyStore()
     url := "test://testurl.whatevs"
     nItems := 30
-    items, _, _ := createItems(nItems, startDate())
+    itemBytes, items, _ := createItems(nItems, startDate())
     s.CreateIndex(url)
     _ = s.Update(url, items[:22])
     err := s.Update(url, items[:25])
@@ -186,8 +190,8 @@ func TestUpdateFile(t *testing.T) {
         t.Fatalf("Expected %d items, got %d", nItems, len(its))
     }
     for i, it := range its {
-        if !sameish(it, items[i]) {
-            t.Fatal("::" + it.String() + "::\n--" + string(items[i]) + "--")
+        if !sameish(it, itemBytes[i]) {
+            t.Fatal("::" + it.String() + "::\n--" + string(itemBytes[i]) + "--")
         }
     }
     its, err = s.Get(url, 3, nItems)
@@ -198,7 +202,7 @@ func TestUpdateFile(t *testing.T) {
         t.Fatalf("Expected %d items, got %d", nItems - 3, len(its))
     }
     for i, it := range its {
-        if !sameish(it, items[i + 3]) {
+        if !sameish(it, itemBytes[i + 3]) {
             t.Fatal(it.String())
         }
     }
@@ -238,13 +242,13 @@ func TestNoGuid(t *testing.T) {
     url := "test://testurl.whatnot"
     nItems := 12
     rss := testhelp.CreateIncompleteRSS(nItems, startDate(), true, false)
-    items := make([][]byte, len(rss.Items()))
-    for i, item := range rss.Items() {
-        items[i] = []byte(item)
+    feed, err := rssmangle.NewFeed(rss.Bytes(), nil)
+    if err != nil {
+        t.Fatal(err)
     }
 
     s.CreateIndex(url)
-    err := s.Update(url, items)
+    err = s.Update(url, feed.Items())
     if err != nil {
         t.Fatal(err)
     }

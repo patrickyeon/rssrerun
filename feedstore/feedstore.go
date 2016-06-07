@@ -11,8 +11,6 @@ import (
     "strconv"
 
     "rss-rerun/rssmangle"
-
-    "github.com/moovweb/gokogiri"
 )
 
 /* index json obj:
@@ -292,30 +290,7 @@ func (s *Store) saveIndex(index Index) error {
     return nil
 }
 
-func getGuid(itm []byte) (string, error) {
-    // come on, let's hope for a proper guid
-
-    x, _ := gokogiri.ParseXml(append(append([]byte("<xml>"), itm...), []byte("</xml>")...))
-    item := x.Root().FirstChild()
-    gtag, err := item.Search("guid")
-    if err == nil && len(gtag) > 0 {
-        return gtag[0].Content(), nil
-    }
-    title, err := item.Search("title")
-    if err != nil {
-        return "", err
-    }
-    link, err := item.Search("link")
-    if err != nil {
-        return "", err
-    }
-    if len(link) == 0 || len(title) == 0 {
-        return "", errors.New("can't build a guid: " + item.String())
-    }
-    return title[0].Content() + " - " + link[0].Content(), nil
-}
-
-func (s *Store) Update(url string, items [][]byte) error {
+func (s *Store) Update(url string, items []rssmangle.Item) error {
     // items must be passed in oldest first
     ind, err := s.indexFor(url)
     if err != nil {
@@ -346,7 +321,7 @@ func (s *Store) Update(url string, items [][]byte) error {
     }
 
     for _, it := range items {
-        guid, err := getGuid(it)
+        guid, err := it.Guid()
         if err != nil {
             return err
         }
@@ -363,7 +338,7 @@ func (s *Store) Update(url string, items [][]byte) error {
             }
             curPos = 0
         }
-        nWritten, err := storefile.WriteString(string(it) + "\n")
+        nWritten, err := storefile.WriteString(it.String() + "\n")
         if err != nil {
             storefile.Close()
             return err
