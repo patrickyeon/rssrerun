@@ -1,9 +1,8 @@
-package rssmangle
+package rssrerun
 
 import (
     "errors"
     "time"
-    "rss-rerun/datesource"
     "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
 )
@@ -26,7 +25,7 @@ type Feed interface {
 type RssFeed struct {
     root xml.Node
     items []xml.Node
-    d *datesource.DateSource
+    d *DateSource
     timeshifted bool
     dtInd int
 }
@@ -43,7 +42,7 @@ func (f *RssFeed) Item(n int) Item {
     return &RssItem{f.items[n]}
 }
 
-func newRssFeed(doc xml.Document, d *datesource.DateSource) (*RssFeed, error) {
+func newRssFeed(doc xml.Document, d *DateSource) (*RssFeed, error) {
     channels, err := doc.Root().Search("channel")
     if err != nil {
         return nil, err
@@ -102,7 +101,7 @@ func (f *RssFeed) LatestAt(n int, t time.Time) ([]Item, error) {
 type AtomFeed struct {
     root xml.Node
     entries []xml.Node
-    d *datesource.DateSource
+    d *DateSource
     timeshifted bool
     dtInd int
 }
@@ -152,7 +151,7 @@ func (a *AtomFeed) Bytes() []byte {
     return a.root.ToBuffer(nil)
 }
 
-func newAtomFeed(doc xml.Document, d *datesource.DateSource) (*AtomFeed, error) {
+func newAtomFeed(doc xml.Document, d *DateSource) (*AtomFeed, error) {
     if doc.Root().Name() != "feed" {
         return nil, errors.New("<feed> tag missing or not root for Atom feed")
     }
@@ -170,7 +169,7 @@ func newAtomFeed(doc xml.Document, d *datesource.DateSource) (*AtomFeed, error) 
     return a, nil
 }
 
-func NewFeed(t []byte, d *datesource.DateSource) (Feed, error) {
+func NewFeed(t []byte, d *DateSource) (Feed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
         return nil, err

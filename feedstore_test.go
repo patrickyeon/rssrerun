@@ -1,12 +1,11 @@
-package feedstore
+package rssrerun
 
 import (
     "os"
     "testing"
     "time"
 
-    "rss-rerun/rssmangle"
-    "rss-rerun/testhelp"
+    "github.com/patrickyeon/rss-rerun/testhelp"
 
     "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
@@ -16,10 +15,6 @@ const (
     TDir = "testdat"
 )
 
-func startDate() time.Time {
-    return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
-}
-
 func emptyStore() Store {
     _ = os.RemoveAll(TDir + "/store")
     _ = os.Mkdir(TDir + "/store", os.ModeDir | os.ModePerm)
@@ -28,13 +23,13 @@ func emptyStore() Store {
     return *ret
 }
 
-func createItems(n int, start time.Time) ([][]byte, []rssmangle.Item, error) {
+func createItems(n int, start time.Time) ([][]byte, []Item, error) {
     rss := testhelp.CreateAndPopulateRSS(n, start)
     itemBytes := make([][]byte, len(rss.Items()))
     for i, item := range rss.Items() {
         itemBytes[i] = []byte(item)
     }
-    feed, err := rssmangle.NewFeed(rss.Bytes(), nil)
+    feed, err := NewFeed(rss.Bytes(), nil)
     if err != nil {
         return nil, nil, err
     }
@@ -65,7 +60,7 @@ func TestStoreItems(t *testing.T) {
         t.Fatal(err)
     }
 
-    _, items, err := createItems(nIt, startDate())
+    _, items, err := createItems(nIt, testhelp.StartDate())
     if err != nil {
         t.Fatal(err)
     }
@@ -85,14 +80,14 @@ func gimmeStore() (Store, string, [][]byte) {
     s := emptyStore()
     url := "test://testurl.whatevs"
     nItems := 25
-    itemBytes, items, _ := createItems(nItems, startDate())
+    itemBytes, items, _ := createItems(nItems, testhelp.StartDate())
     s.CreateIndex(url)
     _ = s.Update(url, items)
 
     return s, url, itemBytes
 }
 
-func sameish(it rssmangle.Item, b []byte) bool {
+func sameish(it Item, b []byte) bool {
     // calling xml.Node.Root().String() pretty-prints the xml, so we parse and
     //  then compare pretty-printed outputs
     bxml, err := gokogiri.ParseXml(b)
@@ -149,8 +144,8 @@ func TestHashCollisions(t *testing.T) {
         t.Fatalf("error creating aggressor, %s\n", err)
     }
 
-    _, vicItems, _ := createItems(3, startDate())
-    _, aggrItems, _ := createItems(5, startDate())
+    _, vicItems, _ := createItems(3, testhelp.StartDate())
+    _, aggrItems, _ := createItems(5, testhelp.StartDate())
     err = s.Update(aggrUrl, aggrItems)
     if err != nil {
         t.Fatal(err)
@@ -171,7 +166,7 @@ func TestUpdateFile(t *testing.T) {
     s := emptyStore()
     url := "test://testurl.whatevs"
     nItems := 30
-    itemBytes, items, _ := createItems(nItems, startDate())
+    itemBytes, items, _ := createItems(nItems, testhelp.StartDate())
     s.CreateIndex(url)
     _ = s.Update(url, items[:22])
     err := s.Update(url, items[:25])
@@ -241,8 +236,8 @@ func TestNoGuid(t *testing.T) {
     s := emptyStore()
     url := "test://testurl.whatnot"
     nItems := 12
-    rss := testhelp.CreateIncompleteRSS(nItems, startDate(), true, false)
-    feed, err := rssmangle.NewFeed(rss.Bytes(), nil)
+    rss := testhelp.CreateIncompleteRSS(nItems, testhelp.StartDate(), true, false)
+    feed, err := NewFeed(rss.Bytes(), nil)
     if err != nil {
         t.Fatal(err)
     }

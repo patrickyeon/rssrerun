@@ -124,3 +124,7 @@ func (a *ATOM) Bytes() []byte {
 func (a *ATOM) Items() []string {
     return a.items
 }
+
+func StartDate() time.Time {
+    return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
+}

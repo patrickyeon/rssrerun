@@ -1,21 +1,16 @@
-package rssmangle
+package rssrerun
 
 import (
     "strconv"
     "testing"
     "time"
 
-    "rss-rerun/datesource"
-    "rss-rerun/testhelp"
+    "github.com/patrickyeon/rss-rerun/testhelp"
 )
-
-func startDate() time.Time {
-    return time.Date(2015, 4, 12, 1, 0, 0, 0, time.UTC)
-}
 
 func TestCreateRssItem(t *testing.T) {
     rsstxt := "<item><title>Actual rss item</title>"
-    rsstxt += "<pubDate>" + startDate().Format(time.RFC822) + "</pubDate>"
+    rsstxt += "<pubDate>" + testhelp.StartDate().Format(time.RFC822) + "</pubDate>"
     rsstxt += "<guid>32</guid><link>foo://bar.baz/</link>"
     rsstxt += "<description>bippity boppity boo</description></item>"
     it, err := MkItem([]byte(rsstxt))
@@ -47,7 +42,7 @@ func TestCreateRssItem(t *testing.T) {
 }
 
 func TestRssHandleCDATA(t *testing.T) {
-    rss := testhelp.CreateAndPopulateRSS(2, startDate())
+    rss := testhelp.CreateAndPopulateRSS(2, testhelp.StartDate())
     breakText := "<item><title>pre-CDATA</title><description><![CDATA["
     breakText += "</item><item>this should not be its own item</item>"
     breakText += "]]></description></item>"
@@ -62,7 +57,7 @@ func TestRssHandleCDATA(t *testing.T) {
 }
 
 func TestAtomHandleCDATA(t *testing.T) {
-    atom := testhelp.CreateAndPopulateATOM(2, startDate())
+    atom := testhelp.CreateAndPopulateATOM(2, testhelp.StartDate())
     breakText := "<id>foo://bar/bazprecdat</id><content><![CDATA["
     breakText += "</entry><entry>this should not be its own entry</entry>"
     breakText += "]]></content><title>pre CDATA</title>"
@@ -77,18 +72,18 @@ func TestAtomHandleCDATA(t *testing.T) {
 }
 
 func TestRssTimeShift(t *testing.T) {
-    testTimeShift(t, testhelp.CreateAndPopulateRSS(10, startDate()))
+    testTimeShift(t, testhelp.CreateAndPopulateRSS(10, testhelp.StartDate()))
 }
 
 func TestAtomTimeShift(t *testing.T) {
-    testTimeShift(t, testhelp.CreateAndPopulateATOM(10, startDate()))
+    testTimeShift(t, testhelp.CreateAndPopulateATOM(10, testhelp.StartDate()))
 }
 
 
 func testTimeShift(t *testing.T, tf testhelp.TestFeed) {
     sched := []time.Weekday{time.Sunday, time.Tuesday}
-    rerun := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
-    expected := datesource.NewDateSource(startDate().AddDate(0, 2, 0), sched)
+    rerun := NewDateSource(testhelp.StartDate().AddDate(0, 2, 0), sched)
+    expected := NewDateSource(testhelp.StartDate().AddDate(0, 2, 0), sched)
     feed, _ := NewFeed(tf.Bytes(), rerun)
 
     if got := len(feed.Items()); got != len(tf.Items()) {
@@ -125,20 +120,20 @@ func testTimeShift(t *testing.T, tf testhelp.TestFeed) {
 }
 
 func TestRssLatestFive(t *testing.T) {
-    rss := testhelp.CreateAndPopulateRSS(100, startDate().AddDate(-3, 0, 0))
+    rss := testhelp.CreateAndPopulateRSS(100, testhelp.StartDate().AddDate(-3, 0, 0))
     testLatestFive(t, rss)
 }
 
 func TestAtomLatestFive(t *testing.T) {
-    atom := testhelp.CreateAndPopulateATOM(100, startDate().AddDate(-3, 0, 0))
+    atom := testhelp.CreateAndPopulateATOM(100, testhelp.StartDate().AddDate(-3, 0, 0))
     testLatestFive(t, atom)
 }
 
 func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
     sched := []time.Weekday{time.Sunday, time.Tuesday}
-    rerun := datesource.NewDateSource(startDate(), sched)
+    rerun := NewDateSource(testhelp.StartDate(), sched)
     feed, _ := NewFeed(tf.Bytes(), rerun)
-    now := startDate().AddDate(0, 4, 0)
+    now := testhelp.StartDate().AddDate(0, 4, 0)
 
     items, err := feed.LatestAt(5, now)
     if err != nil {
@@ -166,7 +161,7 @@ func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
         prev = itdate
     }
 
-    var d *datesource.DateSource
+    var d *DateSource
     // TODO messy here, seeing as I need to poke at the internals
     switch feed := feed.(type) {
     default:
@@ -186,11 +181,11 @@ func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
 }
 
 func TestRssGuids(t *testing.T) {
-    testGuids(t, testhelp.CreateAndPopulateRSS(10, startDate()))
+    testGuids(t, testhelp.CreateAndPopulateRSS(10, testhelp.StartDate()))
 }
 
 func TestAtomGuids(t *testing.T) {
-    testGuids(t, testhelp.CreateAndPopulateATOM(10, startDate()))
+    testGuids(t, testhelp.CreateAndPopulateATOM(10, testhelp.StartDate()))
 }
 
 func testGuids(t *testing.T, tf testhelp.TestFeed) {
@@ -217,7 +212,7 @@ func testGuids(t *testing.T, tf testhelp.TestFeed) {
 }
 
 func TestRssCreativeGuids(t *testing.T) {
-    testCreativeGuids(t, testhelp.CreateIncompleteRSS(10, startDate(),
+    testCreativeGuids(t, testhelp.CreateIncompleteRSS(10, testhelp.StartDate(),
                                                       true, false))
 }
 

@@ -1,4 +1,4 @@
-package feedstore
+package rssrerun
 
 import (
     "crypto/md5"
@@ -9,8 +9,6 @@ import (
     "net/http"
     "os"
     "strconv"
-
-    "rss-rerun/rssmangle"
 )
 
 /* index json obj:
@@ -207,7 +205,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) Get(url string, start int, end int) ([]rssmangle.Item, error) {
+func (s *Store) Get(url string, start int, end int) ([]Item, error) {
     // we will return an array of items, oldest first, of length (end - start)
     index, err := s.indexFor(url)
     if err != nil {
@@ -216,7 +214,7 @@ func (s *Store) Get(url string, start int, end int) ([]rssmangle.Item, error) {
     return s.getInd(index, start, end)
 }
 
-func (s *Store) getInd(index Index, start int, end int) ([]rssmangle.Item, error) {
+func (s *Store) getInd(index Index, start int, end int) ([]Item, error) {
     if start < 0 || end <= start {
         return nil, errors.New("invalid range")
     }
@@ -224,7 +222,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]rssmangle.Item, error
         return nil, errors.New("invalid range")
     }
 
-    ret := make([]rssmangle.Item, end - start)
+    ret := make([]Item, end - start)
     var ftxt []byte
 
     fname := ""
@@ -247,7 +245,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]rssmangle.Item, error
         }
         // ignore the newline we added when storing in Update()
         itemBytes := ftxt[index.offsets[strconv.Itoa(i)] : endbyte - 1]
-        retval, err := rssmangle.MkItem(itemBytes)
+        retval, err := MkItem(itemBytes)
         if err != nil {
             return nil, err
         }
@@ -290,7 +288,7 @@ func (s *Store) saveIndex(index Index) error {
     return nil
 }
 
-func (s *Store) Update(url string, items []rssmangle.Item) error {
+func (s *Store) Update(url string, items []Item) error {
     // items must be passed in oldest first
     ind, err := s.indexFor(url)
     if err != nil {

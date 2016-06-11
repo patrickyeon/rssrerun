@@ -1,4 +1,4 @@
-package datesource
+package rssrerun
 
 import (
     "time"

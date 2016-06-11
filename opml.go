@@ -1,4 +1,4 @@
-package opml
+package rssrerun
 
 import (
     "github.com/moovweb/gokogiri"

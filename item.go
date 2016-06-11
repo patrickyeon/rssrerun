@@ -1,4 +1,4 @@
-package rssmangle
+package rssrerun
 
 import (
     "errors"
