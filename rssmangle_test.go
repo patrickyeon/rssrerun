@@ -5,7 +5,7 @@ import (
     "testing"
     "time"
 
-    "github.com/patrickyeon/rss-rerun/testhelp"
+    "github.com/patrickyeon/rssrerun/testhelp"
 )
 
 func TestCreateRssItem(t *testing.T) {

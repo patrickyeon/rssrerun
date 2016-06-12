@@ -8,7 +8,7 @@ import (
     "os"
     "strings"
 
-    "github.com/patrickyeon/rss-rerun"
+    "github.com/patrickyeon/rssrerun"
 
     "github.com/mmcdole/gofeed"
 )

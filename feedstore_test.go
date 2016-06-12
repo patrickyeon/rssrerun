@@ -5,7 +5,7 @@ import (
     "testing"
     "time"
 
-    "github.com/patrickyeon/rss-rerun/testhelp"
+    "github.com/patrickyeon/rssrerun/testhelp"
 
     "github.com/moovweb/gokogiri"
     "github.com/moovweb/gokogiri/xml"
