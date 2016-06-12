@@ -9,8 +9,6 @@ import (
     "strings"
 
     "github.com/patrickyeon/rssrerun"
-
-    "github.com/mmcdole/gofeed"
 )
 
 var OpmlFile string
@@ -138,17 +136,7 @@ func main() {
             log.Printf("RSS error: %s", err)
             continue
         }
-        gfRss, err := gofeed.NewParser().ParseString(string(data))
-        if err != nil {
-            log.Printf("gofeed error: %s", err)
-            continue
-        }
         nItems := len(rss.Items())
-        if nItems != len(gfRss.Items) {
-            stats.NparseErrors += 1
-            log.Printf("!!> %d items (gofeed: %d).", nItems, len(gfRss.Items))
-            continue
-        }
         stats.Nitems += nItems
         precount := store.NumItems(u)
         if precount == 0 {
