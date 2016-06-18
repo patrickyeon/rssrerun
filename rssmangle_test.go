@@ -6,6 +6,7 @@ import (
     "time"
 
     "github.com/patrickyeon/rssrerun/testhelp"
+    "github.com/moovweb/gokogiri"
 )
 
 func TestCreateRssItem(t *testing.T) {
@@ -235,5 +236,41 @@ func testCreativeGuids(t *testing.T, tf testhelp.TestFeed) {
             t.Error(g)
         }
         t.Fail()
+    }
+}
+
+func TestRssFrontMatter(t *testing.T) {
+    rss := testhelp.CreateAndPopulateRSS(12, testhelp.StartDate())
+    feed, _ := NewFeed(rss.Bytes(), nil)
+
+    wrapper, err := gokogiri.ParseXml(feed.Wrapper())
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    its, err := wrapper.Root().Search("channel/item")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(its) != 1 {
+        t.Fatalf("should have 1 and only 1 <item> tag. found %d", len(its))
+    }
+}
+
+func TestAtomFrontMatter(t *testing.T) {
+    atom := testhelp.CreateAndPopulateATOM(12, testhelp.StartDate())
+    feed, _ := NewFeed(atom.Bytes(), nil)
+
+    wrapper, err := gokogiri.ParseXml(feed.Wrapper())
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    its, err := wrapper.Root().Search("//*[local-name()='entry']")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(its) != 1 {
+        t.Fatalf("should have 1 and only 1 <entry> tag. found %d", len(its))
     }
 }

@@ -19,6 +19,8 @@ type Feed interface {
     Item(n int) Item
     LatestAt(n int, t time.Time) ([]Item, error)
 
+    Wrapper() []byte
+
     Bytes() []byte
 }
 
@@ -60,13 +62,43 @@ func newRssFeed(doc xml.Document, d *DateSource) (*RssFeed, error) {
     if err != nil {
         return nil, err
     }
+    if len(f.items) > 0 {
+        f.items[0].InsertBefore(doc.CreateElementNode("item"))
+    }
+    for _, item := range f.items {
+        item.Unlink()
+    }
     f.d = d
     f.dtInd = 0
     return f, nil
 }
 
-func (f *RssFeed) Bytes() []byte {
+func (f *RssFeed) Wrapper() []byte {
     return f.root.ToBuffer(nil)
+}
+
+func (f *RssFeed) Bytes() []byte {
+    placeholder, err := f.root.Search("channel/item")
+    if err != nil {
+        // there were never any items to begin with... weird
+        return f.root.ToBuffer(nil)
+    }
+    lastitem := placeholder[0]
+    for _, item := range f.items {
+        if err = lastitem.AddNextSibling(item); err != nil {
+            return nil
+        }
+        lastitem = item
+    }
+    placeholder[0].Unlink()
+    retval := f.root.ToBuffer(nil)
+    if err  = f.items[0].AddPreviousSibling(placeholder); err != nil {
+        return nil
+    }
+    for _, item := range f.items {
+        item.Unlink()
+    }
+    return retval
 }
 
 func (f *RssFeed) TimeShift() error {
@@ -148,6 +180,29 @@ func (a *AtomFeed) LatestAt(n int, t time.Time) ([]Item, error) {
 }
 
 func (a *AtomFeed) Bytes() []byte {
+    placeholder, err := a.root.Search("//*[local-name()='entry']")
+    if err != nil {
+        return a.root.ToBuffer(nil)
+    }
+    lastentry := placeholder[0]
+    for _, entry := range a.entries {
+        if err = lastentry.AddNextSibling(entry); err != nil {
+            return nil
+        }
+        lastentry = entry
+    }
+    placeholder[0].Unlink()
+    retval := a.root.ToBuffer(nil)
+    if err  = a.entries[0].AddPreviousSibling(placeholder); err != nil {
+        return nil
+    }
+    for _, entry := range a.entries {
+        entry.Unlink()
+    }
+    return retval
+}
+
+func (a *AtomFeed) Wrapper() []byte {
     return a.root.ToBuffer(nil)
 }
 
@@ -161,6 +216,20 @@ func newAtomFeed(doc xml.Document, d *DateSource) (*AtomFeed, error) {
     a.entries, err = doc.Root().Search("//*[local-name()='entry']")
     if err != nil {
         return nil, err
+    }
+    if len(a.entries) > 0 {
+        first := a.entries[0]
+        placeholder := doc.CreateElementNode("entry")
+        namespace := first.Namespace()
+        for _, ns := range first.DeclaredNamespaces() {
+            if ns.Uri == namespace {
+                placeholder.SetNamespace(ns.Prefix, ns.Uri)
+            }
+        }
+        first.InsertBefore(placeholder)
+    }
+    for _, entry := range a.entries {
+        entry.Unlink()
     }
     a.d = d
     a.timeshifted = false

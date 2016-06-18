@@ -148,6 +148,7 @@ func main() {
             log.Printf("%d items, store error: %s\n", nItems, err)
             continue
         }
+        store.SetInfo(u, "wrapper", string(rss.Wrapper()))
         postcount := store.NumItems(u)
         log.Printf("%d items, stored %d -> %d", nItems, precount, postcount)
         stats.NnewItems += (postcount - precount)
