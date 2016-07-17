@@ -74,9 +74,13 @@ func (d *DateSource) DatesInRange(from, to time.Time) int {
     storelast := d.lastDate
     d.lastDate = from
     nDates := 0
-    for when, _ := d.NextDate(); when.Before(to); when, _ = d.NextDate() {
+    for when := from; when.Before(to); when, _ = d.NextDate() {
         nDates++
     }
     d.lastDate = storelast
+    // if from is not a date on our schedule, we have counted one too many
+    if !d.containsDay(from) {
+        nDates -= 1
+    }
     return nDates
 }

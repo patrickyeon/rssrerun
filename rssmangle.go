@@ -12,27 +12,68 @@ var (
                           time.RFC1123, time.RFC1123Z}
 )
 
-type Feed interface {
-    TimeShift() error
-
-    Items() []Item
-    Item(n int) Item
-    LatestAt(n int, t time.Time) ([]Item, error)
-
+type rawFeed interface {
+    MakeItems() []Item
     Wrapper() []byte
-
     Bytes() []byte
+    BytesWithItems(items []Item) []byte
+}
+
+type Feed struct {
+    Items []Item
+
+    raw rawFeed
+    d *DateSource
+}
+
+func (f *Feed) Bytes() []byte {
+    return f.BytesWithItems(f.Items)
+}
+func (f *Feed) BytesWithItems(items []Item) []byte {
+    return f.raw.BytesWithItems(items)
+}
+func (f *Feed) Wrapper() []byte {
+    return f.raw.Wrapper()
+}
+func (f *Feed) ShiftedAt(n int, t time.Time) ([]Item, error) {
+    // if item N is after time t, we want items (N-n-1 .. N-1) and then shift
+    ndays := f.d.DatesInRange(f.d.StartDate, t)
+    // n is the number of items we want
+    // ndays is the number of rerun episodes between start and t
+    // (ndays - n) < 0 means they're asking for more than have rerun yet.
+    //   that's ok, we need to give them fewer though
+    // (ndays - n) > 0 means we need to skip the first (ndays - n) reruns
+    // once they're skipped, one-for-one item and .NextDate()
+    nskip := ndays - n
+    if nskip < 0 {
+        nskip = 0
+    }
+    if nskip > len(f.Items) {
+        return nil, errors.New("too old")
+    }
+    f.d.lastDate = f.d.StartDate.AddDate(0, 0, -1)
+    f.d.SkipForward(nskip)
+
+    nret := n
+    if nret + nskip > len(f.Items) {
+        nret = len(f.Items) - nskip
+    }
+    ret := make([]Item, nret)
+    for i := 0; i < nret; i++ {
+        // last -1 needed because its[len(its) - x] is (x - 1)'th from the back
+        ret[nret - i - 1] = f.Items[len(f.Items) - (nskip + i) - 1]
+        nd, _ := f.d.NextDate()
+        ret[nret - i - 1].SetPubDate(nd)
+    }
+    return ret, nil
 }
 
 type RssFeed struct {
     root xml.Node
     items []xml.Node
-    d *DateSource
-    timeshifted bool
-    dtInd int
 }
 
-func (f *RssFeed) Items() []Item {
+func (f *RssFeed) MakeItems() []Item {
     ret := make([]Item, len(f.items))
     for i, it := range f.items {
         ret[i] = &RssItem{it}
@@ -40,11 +81,7 @@ func (f *RssFeed) Items() []Item {
     return ret
 }
 
-func (f *RssFeed) Item(n int) Item {
-    return &RssItem{f.items[n]}
-}
-
-func newRssFeed(doc xml.Document, d *DateSource) (*RssFeed, error) {
+func newRssRaw(doc xml.Document) (*RssFeed, error) {
     channels, err := doc.Root().Search("channel")
     if err != nil {
         return nil, err
@@ -68,8 +105,6 @@ func newRssFeed(doc xml.Document, d *DateSource) (*RssFeed, error) {
     for _, item := range f.items {
         item.Unlink()
     }
-    f.d = d
-    f.dtInd = 0
     return f, nil
 }
 
@@ -78,92 +113,28 @@ func (f *RssFeed) Wrapper() []byte {
 }
 
 func (f *RssFeed) Bytes() []byte {
-    placeholder, err := f.root.Search("channel/item")
-    if err != nil {
-        // there were never any items to begin with... weird
-        return f.root.ToBuffer(nil)
-    }
-    lastitem := placeholder[0]
-    for _, item := range f.items {
-        if err = lastitem.AddNextSibling(item); err != nil {
-            return nil
-        }
-        lastitem = item
-    }
-    placeholder[0].Unlink()
-    retval := f.root.ToBuffer(nil)
-    if err  = f.items[0].AddPreviousSibling(placeholder); err != nil {
-        return nil
-    }
-    for _, item := range f.items {
-        item.Unlink()
-    }
-    return retval
+    return f.bytesWithNodes(f.items)
 }
 
-func (f *RssFeed) TimeShift() error {
-    if f.timeshifted {
-        return nil
+func (f *RssFeed) BytesWithItems(items []Item) []byte {
+    its := make([]xml.Node, len(items))
+    for i, item := range items {
+        its[i] = item.Node()
     }
-    for i := (len(f.items) - 1); i >= 0; i-- {
-        it := f.Item(i)
-        olddate, err := it.PubDate()
-        if err != nil {
-            return err
-        }
-        date, err := f.d.NextDate()
-        if err != nil {
-            return err
-        }
-        if olddate.After(date) {
-            break
-        }
-        if err = it.SetPubDate(date); err != nil {
-            return err
-        }
-    }
-    f.timeshifted = true
-    return nil
+    return f.bytesWithNodes(its)
 }
 
-func (f *RssFeed) LatestAt(n int, t time.Time) ([]Item, error) {
-    return latestAt(f, n, t)
+func (f *RssFeed) bytesWithNodes(nodes []xml.Node) []byte {
+    return insertForRender(f.root, nodes, "channel/item")
 }
 
 type AtomFeed struct {
     root xml.Node
     entries []xml.Node
     d *DateSource
-    timeshifted bool
-    dtInd int
 }
 
-func (a *AtomFeed) TimeShift() error {
-    if a.timeshifted {
-        return nil
-    }
-    for i := (len(a.entries) - 1); i >= 0; i-- {
-        it := a.Item(i)
-        olddate, err := it.PubDate()
-        if err != nil {
-            return err
-        }
-        date, err := a.d.NextDate()
-        if err != nil {
-            return err
-        }
-        if olddate.After(date) {
-            break
-        }
-        if err = it.SetPubDate(date); err != nil {
-            return err
-        }
-    }
-    a.timeshifted = true
-    return nil
-}
-
-func (a *AtomFeed) Items() []Item {
+func (a *AtomFeed) MakeItems() []Item {
     ret := make([]Item, len(a.entries))
     for i, it := range a.entries {
         ret[i] = &AtomItem{it}
@@ -171,42 +142,27 @@ func (a *AtomFeed) Items() []Item {
     return ret
 }
 
-func (a *AtomFeed) Item(n int) Item {
-    return &AtomItem{a.entries[n]}
-}
-
-func (a *AtomFeed) LatestAt(n int, t time.Time) ([]Item, error) {
-    return latestAt(a, n, t)
-}
-
 func (a *AtomFeed) Bytes() []byte {
-    placeholder, err := a.root.Search("//*[local-name()='entry']")
-    if err != nil {
-        return a.root.ToBuffer(nil)
+    return a.bytesWithNodes(a.entries)
+}
+
+func (f *AtomFeed) BytesWithItems(items []Item) []byte {
+    its := make([]xml.Node, len(items))
+    for i, item := range items {
+        its[i] = item.Node()
     }
-    lastentry := placeholder[0]
-    for _, entry := range a.entries {
-        if err = lastentry.AddNextSibling(entry); err != nil {
-            return nil
-        }
-        lastentry = entry
-    }
-    placeholder[0].Unlink()
-    retval := a.root.ToBuffer(nil)
-    if err  = a.entries[0].AddPreviousSibling(placeholder); err != nil {
-        return nil
-    }
-    for _, entry := range a.entries {
-        entry.Unlink()
-    }
-    return retval
+    return f.bytesWithNodes(its)
+}
+
+func (a *AtomFeed) bytesWithNodes(nodes []xml.Node) []byte {
+    return insertForRender(a.root, nodes, "//*[local-name()='entry']")
 }
 
 func (a *AtomFeed) Wrapper() []byte {
     return a.root.ToBuffer(nil)
 }
 
-func newAtomFeed(doc xml.Document, d *DateSource) (*AtomFeed, error) {
+func newAtomRaw(doc xml.Document)  (*AtomFeed, error) {
     if doc.Root().Name() != "feed" {
         return nil, errors.New("<feed> tag missing or not root for Atom feed")
     }
@@ -231,56 +187,47 @@ func newAtomFeed(doc xml.Document, d *DateSource) (*AtomFeed, error) {
     for _, entry := range a.entries {
         entry.Unlink()
     }
-    a.d = d
-    a.timeshifted = false
-    a.dtInd = 0
 
     return a, nil
 }
 
-func NewFeed(t []byte, d *DateSource) (Feed, error) {
+func NewFeed(t []byte, d *DateSource) (*Feed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
         return nil, err
     }
-    rss, rssErr := newRssFeed(doc, d)
+    rss, rssErr := newRssRaw(doc)
     if rssErr == nil {
-        return rss, nil
+        return &Feed{rss.MakeItems(), rss, d}, nil
     }
-    atom, atomErr := newAtomFeed(doc, d)
+    atom, atomErr := newAtomRaw(doc)
     if atomErr == nil {
-        return atom, nil
+        return &Feed{atom.MakeItems(), atom, d}, nil
     }
     return nil, errors.New("Couldn't parse feed as RSS: \"" + rssErr.Error() +
                            "\", nor as ATOM: \"" + atomErr.Error() + "\"")
 }
 
-func latestAt(f Feed, n int, t time.Time) ([]Item, error) {
-    if len(f.Items()) == 0 {
-        return nil, errors.New("no items in feed")
+func insertForRender(parent xml.Node, children []xml.Node, where string) []byte {
+    placeholder, err := parent.Search(where)
+    if err != nil {
+        // weird, the placeholder isn't there
+        return parent.ToBuffer(nil)
     }
-
-    f.TimeShift()
-    i := -1
-    for j, it := range f.Items() {
-        d, err := it.PubDate()
-        if err != nil {
-            return nil, err
+    lastchild := placeholder[0]
+    for _, child := range children {
+        if err = lastchild.AddNextSibling(child); err != nil {
+            return nil
         }
-        if !d.After(t) {
-            i = j
-            break
-        }
+        lastchild = child
     }
-    if i == -1 {
-        // all of the items are after time t
-        return nil, errors.New("latest time comes before oldest item")
+    placeholder[0].Unlink()
+    retval := parent.ToBuffer(nil)
+    if err  = children[0].AddPreviousSibling(placeholder); err != nil {
+        return nil
     }
-
-    end := i + n
-    if realend := len(f.Items()) - 1; realend < end {
-        end = realend
+    for _, child := range children {
+        child.Unlink()
     }
-
-    return f.Items()[i : end], nil
+    return retval
 }

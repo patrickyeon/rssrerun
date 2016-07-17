@@ -33,7 +33,7 @@ func createItems(n int, start time.Time) ([][]byte, []Item, error) {
     if err != nil {
         return nil, nil, err
     }
-    return itemBytes, feed.Items(), nil
+    return itemBytes, feed.Items, nil
 }
 
 func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
@@ -243,7 +243,7 @@ func TestNoGuid(t *testing.T) {
     }
 
     s.CreateIndex(url)
-    err = s.Update(url, feed.Items())
+    err = s.Update(url, feed.Items)
     if err != nil {
         t.Fatal(err)
     }

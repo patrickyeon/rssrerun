@@ -114,10 +114,23 @@ func TestFFPastStartDate(t *testing.T) {
 func TestDatesInRange(t *testing.T) {
     dsrc := NewDateSource(StartDate(),
                           []time.Weekday{time.Sunday, time.Tuesday})
+    past, _ := dsrc.NextDate()
     dsrc.SkipForward(10)
     future, _ := dsrc.NextDate()
-    nItems := dsrc.DatesInRange(StartDate(), future)
-    if nItems != 10 {
-        t.Errorf("Incorrect range count, exp: 10, got:%d", nItems)
+    nItems := dsrc.DatesInRange(past, future)
+    // there are the ten days skipped forward, and then the one more from
+    //  dsrc.NextDate()
+    if nItems != 11 {
+        t.Errorf("Incorrect range count, exp: 11, got:%d", nItems)
+    }
+}
+
+func TestDatesInRangeOffset(t *testing.T) {
+    // important, this is a Wednesday
+    start := time.Date(2015, time.March, 19, 0, 0, 0, 0, time.UTC)
+    dsrc := NewDateSource(start,
+                          []time.Weekday{time.Sunday, time.Tuesday})
+    if nDates := dsrc.DatesInRange(start, start.AddDate(0, 0, 7)); nDates != 2 {
+        t.Errorf("Expected 2 dates in range, got %d", nDates);
     }
 }

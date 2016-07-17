@@ -51,7 +51,7 @@ func TestRssHandleCDATA(t *testing.T) {
     rss.AddPost("<item><title>post-CDATA</title></item>")
     feed, _ := NewFeed(rss.Bytes(), nil)
 
-    if got := len(feed.Items()); got != 4 {
+    if got := len(feed.Items); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
         t.Error(string(feed.Bytes()))
     }
@@ -66,7 +66,7 @@ func TestAtomHandleCDATA(t *testing.T) {
     atom.AddPost("<id>foo://bar/bazpostcdat</id><title>post CDATA</title>")
     feed, _ := NewFeed(atom.Bytes(), nil)
 
-    if got := len(feed.Items()); got != 4 {
+    if got := len(feed.Items); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
         t.Error(string(feed.Bytes()))
     }
@@ -87,25 +87,20 @@ func testTimeShift(t *testing.T, tf testhelp.TestFeed) {
     expected := NewDateSource(testhelp.StartDate().AddDate(0, 2, 0), sched)
     feed, _ := NewFeed(tf.Bytes(), rerun)
 
-    if got := len(feed.Items()); got != len(tf.Items()) {
+    if got := len(feed.Items); got != len(tf.Items()) {
         t.Fatalf("expected %d items, got %d", len(tf.Items()), got)
     }
 
-    err := feed.TimeShift()
-    if err != nil {
-        t.Fatal(err)
-    }
-
-    shifted, err := NewFeed(feed.Bytes(), nil)
+    shifted, err := feed.ShiftedAt(100, testhelp.StartDate().AddDate(0, 0, 100))
     if err != nil {
         t.Error(err)
     }
-    if got := len(shifted.Items()); got != len(feed.Items()) {
-        t.Fatalf("expected %d items, got %d", len(feed.Items()), got)
+    if got := len(shifted); got != len(feed.Items) {
+        t.Fatalf("expected %d items, got %d", len(feed.Items), got)
     }
 
-    for i := (len(shifted.Items()) - 1); i >= 0; i-- {
-        it := shifted.Item(i)
+    for i := (len(shifted) - 1); i >= 0; i-- {
+        it := shifted[i]
         pd, err := it.PubDate()
         if err != nil {
             t.Error(err)
@@ -136,7 +131,7 @@ func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
     feed, _ := NewFeed(tf.Bytes(), rerun)
     now := testhelp.StartDate().AddDate(0, 4, 0)
 
-    items, err := feed.LatestAt(5, now)
+    items, err := feed.ShiftedAt(5, now)
     if err != nil {
         t.Fatal(err)
     }
@@ -162,22 +157,15 @@ func testLatestFive(t *testing.T, tf testhelp.TestFeed) {
         prev = itdate
     }
 
-    var d *DateSource
-    // TODO messy here, seeing as I need to poke at the internals
-    switch feed := feed.(type) {
-    default:
-        t.Fatal("unknown feed type")
-    case *RssFeed:
-        d = feed.d
-    case *AtomFeed:
-        d = feed.d
-    }
-    future, err := d.NextDate()
+    future, err := feed.d.NextDate()
     if err != nil {
         t.Fatal(err)
     }
     if future.Before(now) {
-        t.Fatal("still item(s) available before 'now'")
+        for _, i := range items {
+            t.Error(i.String())
+        }
+        t.Fatalf("still item(s) available before 'now'")
     }
 }
 
@@ -195,12 +183,12 @@ func testGuids(t *testing.T, tf testhelp.TestFeed) {
     if err != nil {
         t.Fatal(err)
     }
-    if len(feed.Items()) != 10 {
-        t.Error(feed.Items())
-        t.Fatalf("expected 10 items, got %d", len(feed.Items()))
+    if len(feed.Items) != 10 {
+        t.Error(feed.Items)
+        t.Fatalf("expected 10 items, got %d", len(feed.Items))
     }
 
-    for i, item := range feed.Items() {
+    for i, item := range feed.Items {
         g, err := item.Guid()
         if err != nil {
             t.Fatalf("Item %d: %v", i, err)
@@ -223,7 +211,7 @@ func testCreativeGuids(t *testing.T, tf testhelp.TestFeed) {
     feed, _ := NewFeed(tf.Bytes(), nil)
     guidSet := make(map[string]bool, 10)
 
-    for _, item := range feed.Items() {
+    for _, item := range feed.Items {
         g, err := item.Guid()
         if err != nil {
             t.Fatal(err)

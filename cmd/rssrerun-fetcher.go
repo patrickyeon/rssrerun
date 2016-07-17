@@ -136,13 +136,13 @@ func main() {
             log.Printf("RSS error: %s", err)
             continue
         }
-        nItems := len(rss.Items())
+        nItems := len(rss.Items)
         stats.Nitems += nItems
         precount := store.NumItems(u)
         if precount == 0 {
             store.CreateIndex(u)
         }
-        err = store.Update(u, rss.Items())
+        err = store.Update(u, rss.Items)
         if err != nil {
             stats.NstoreErrors += 1
             log.Printf("%d items, store error: %s\n", nItems, err)

@@ -13,6 +13,7 @@ type Item interface {
     SetPubDate(date time.Time) (error)
     Guid() (string, error)
     String() string
+    Node() xml.Node
 }
 
 type RssItem struct {
@@ -67,6 +68,10 @@ func (item *RssItem) String() string {
     return item.src.String()
 }
 
+func (item *RssItem) Node() xml.Node {
+    return item.src
+}
+
 
 type AtomItem struct {
     src xml.Node
@@ -98,6 +103,10 @@ func (item *AtomItem) Guid() (string, error) {
 
 func (item *AtomItem) String() string {
     return item.src.String()
+}
+
+func (item *AtomItem) Node() xml.Node {
+    return item.src
 }
 
 
