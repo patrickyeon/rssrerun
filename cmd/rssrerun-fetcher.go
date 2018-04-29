@@ -91,7 +91,7 @@ func main() {
     if StoreDir[len(StoreDir) - 1] != os.PathSeparator {
         StoreDir += string(os.PathSeparator)
     }
-    store := rssrerun.NewStore(StoreDir)
+    store := rssrerun.NewJSONStore(StoreDir)
     f, err := os.Open(OpmlFile)
     if err != nil {
         log.Fatal(err)

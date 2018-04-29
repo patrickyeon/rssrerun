@@ -15,7 +15,7 @@ var templates = template.Must(template.ParseFiles("public/about.html",
 var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
                               time.Wednesday, time.Thursday, time.Friday,
                               time.Saturday}
-var store = rssrerun.NewStore("data/stores/podcaststore/")
+var store = rssrerun.NewJSONStore("data/stores/podcaststore/")
 
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) error {
     err := templates.ExecuteTemplate(w, name, data)
