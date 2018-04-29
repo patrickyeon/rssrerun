@@ -9,35 +9,21 @@ import (
 
 var (
     dateTypes = []string {time.RFC822, time.RFC822Z,
-                          time.RFC1123, time.RFC1123Z}
+    time.RFC1123, time.RFC1123Z}
 )
 
-type rawFeed interface {
-    MakeItems() []Item
+type Feed interface {
     Wrapper() []byte
     Bytes() []byte
     BytesWithItems(items []Item) []byte
+    Items() []Item
+    ShiftedAt(n int, t time.Time) ([]Item, error)
 }
 
-type Feed struct {
-    Items []Item
-
-    raw rawFeed
-    d *DateSource
-}
-
-func (f *Feed) Bytes() []byte {
-    return f.BytesWithItems(f.Items)
-}
-func (f *Feed) BytesWithItems(items []Item) []byte {
-    return f.raw.BytesWithItems(items)
-}
-func (f *Feed) Wrapper() []byte {
-    return f.raw.Wrapper()
-}
-func (f *Feed) ShiftedAt(n int, t time.Time) ([]Item, error) {
+func univShiftedAt(n int, t time.Time, f Feed, d *DateSource) ([]Item, error) {
+    items := f.Items()
     // if item N is after time t, we want items (N-n-1 .. N-1) and then shift
-    ndays := f.d.DatesInRange(f.d.StartDate, t)
+    ndays := d.DatesInRange(d.StartDate, t)
     // n is the number of items we want
     // ndays is the number of rerun episodes between start and t
     // (ndays - n) < 0 means they're asking for more than have rerun yet.
@@ -48,21 +34,21 @@ func (f *Feed) ShiftedAt(n int, t time.Time) ([]Item, error) {
     if nskip < 0 {
         nskip = 0
     }
-    if nskip > len(f.Items) {
+    if nskip > len(items) {
         return nil, errors.New("too old")
     }
-    f.d.lastDate = f.d.StartDate.AddDate(0, 0, -1)
-    f.d.SkipForward(nskip)
+    d.lastDate = d.StartDate.AddDate(0, 0, -1)
+    d.SkipForward(nskip)
 
     nret := n
-    if nret + nskip > len(f.Items) {
-        nret = len(f.Items) - nskip
+    if nret + nskip > len(items) {
+        nret = len(items) - nskip
     }
     ret := make([]Item, nret)
     for i := 0; i < nret; i++ {
         // last -1 needed because its[len(its) - x] is (x - 1)'th from the back
-        ret[nret - i - 1] = f.Items[len(f.Items) - (nskip + i) - 1]
-        nd, _ := f.d.NextDate()
+        ret[nret - i - 1] = items[len(items) - (nskip + i) - 1]
+        nd, _ := d.NextDate()
         ret[nret - i - 1].SetPubDate(nd)
     }
     return ret, nil
@@ -70,15 +56,25 @@ func (f *Feed) ShiftedAt(n int, t time.Time) ([]Item, error) {
 
 type RssFeed struct {
     root xml.Node
-    items []xml.Node
+    itemNodes []xml.Node
+    items []Item
+    d *DateSource
 }
 
-func (f *RssFeed) MakeItems() []Item {
-    ret := make([]Item, len(f.items))
-    for i, it := range f.items {
-        ret[i] = &RssItem{it}
+func (f *RssFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
+    return univShiftedAt(n, t, f, f.d)
+}
+
+func (f *RssFeed) Items() []Item {
+    return f.items
+}
+
+// TODO error on already existing here?
+func (f *RssFeed) makeItems() {
+    f.items = make([]Item, len(f.itemNodes))
+    for i, it := range f.itemNodes {
+        f.items[i] = &RssItem{it}
     }
-    return ret
 }
 
 func newRssRaw(doc xml.Document) (*RssFeed, error) {
@@ -95,14 +91,14 @@ func newRssRaw(doc xml.Document) (*RssFeed, error) {
 
     f := new(RssFeed)
     f.root = doc.Root()
-    f.items, err = doc.Root().Search("channel/item")
+    f.itemNodes, err = doc.Root().Search("channel/item")
     if err != nil {
         return nil, err
     }
-    if len(f.items) > 0 {
-        f.items[0].InsertBefore(doc.CreateElementNode("item"))
+    if len(f.itemNodes) > 0 {
+        f.itemNodes[0].InsertBefore(doc.CreateElementNode("item"))
     }
-    for _, item := range f.items {
+    for _, item := range f.itemNodes {
         item.Unlink()
     }
     return f, nil
@@ -113,7 +109,7 @@ func (f *RssFeed) Wrapper() []byte {
 }
 
 func (f *RssFeed) Bytes() []byte {
-    return f.bytesWithNodes(f.items)
+    return f.bytesWithNodes(f.itemNodes)
 }
 
 func (f *RssFeed) BytesWithItems(items []Item) []byte {
@@ -131,15 +127,23 @@ func (f *RssFeed) bytesWithNodes(nodes []xml.Node) []byte {
 type AtomFeed struct {
     root xml.Node
     entries []xml.Node
+    items []Item
     d *DateSource
 }
 
-func (a *AtomFeed) MakeItems() []Item {
-    ret := make([]Item, len(a.entries))
+func (a *AtomFeed) makeItems() {
+    a.items = make([]Item, len(a.entries))
     for i, it := range a.entries {
-        ret[i] = &AtomItem{it}
+        a.items[i] = &AtomItem{it}
     }
-    return ret
+}
+
+func (a *AtomFeed) Items() []Item {
+    return a.items
+}
+
+func (a *AtomFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
+    return univShiftedAt(n, t, a, a.d)
 }
 
 func (a *AtomFeed) Bytes() []byte {
@@ -191,18 +195,22 @@ func newAtomRaw(doc xml.Document)  (*AtomFeed, error) {
     return a, nil
 }
 
-func NewFeed(t []byte, d *DateSource) (*Feed, error) {
+func NewFeed(t []byte, d *DateSource) (Feed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
         return nil, err
     }
     rss, rssErr := newRssRaw(doc)
     if rssErr == nil {
-        return &Feed{rss.MakeItems(), rss, d}, nil
+        rss.makeItems()
+        rss.d = d
+        return Feed(rss), nil
     }
     atom, atomErr := newAtomRaw(doc)
     if atomErr == nil {
-        return &Feed{atom.MakeItems(), atom, d}, nil
+        atom.makeItems()
+        atom.d = d
+        return Feed(atom), nil
     }
     return nil, errors.New("Couldn't parse feed as RSS: \"" + rssErr.Error() +
                            "\", nor as ATOM: \"" + atomErr.Error() + "\"")
