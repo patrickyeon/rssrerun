@@ -5,6 +5,9 @@ import (
     "time"
 )
 
+//  We want to set a schedule for reruns based on a start date and a day-of-week
+// schedule (eg, Monday-Wednesday-Friday). This lets us do that and do things
+// like iterate through the dates.
 type DateSource struct {
     StartDate time.Time
     Schedule []time.Weekday
@@ -27,10 +30,12 @@ func NewDateSource(start time.Time, schedule []time.Weekday) *DateSource {
     d.StartDate = time.Date(start.Year(), start.Month(), start.Day(),
                             0, 0, 0, 0, time.UTC)
     d.Schedule = schedule
+    // initialize to a day before the startdate so that we catch it too
     d.lastDate = d.StartDate.AddDate(0, 0, -1)
     return d
 }
 
+// What is the next date on the schedule for our `DateSource`?
 func (d *DateSource) NextDate() (time.Time, error) {
     if d.Schedule == nil {
         return d.StartDate, errors.New("NextDate() on empty schedule")
@@ -49,8 +54,8 @@ func (d *DateSource) NextDate() (time.Time, error) {
     }
 }
 
+// skip forward by `nDays` *scheduled* days
 func (d *DateSource) SkipForward(nDays int) {
-    // skip forward by nDays *scheduled* days
     for nDays != 0 {
         if nDays > 0 {
             _, _ = d.NextDate()
@@ -67,6 +72,8 @@ func (d *DateSource) SkipForward(nDays int) {
     }
 }
 
+// how many days are there between `from` and `to`, inclusive?
+// TODO or does it not include `to`? Also, is this actually correct?
 func (d *DateSource) DatesInRange(from, to time.Time) int {
     if from.After(to) {
         return 0
@@ -79,6 +86,7 @@ func (d *DateSource) DatesInRange(from, to time.Time) int {
     }
     d.lastDate = storelast
     // if from is not a date on our schedule, we have counted one too many
+    // TODO I don't actually trust this.
     if !d.containsDay(from) {
         nDates -= 1
     }

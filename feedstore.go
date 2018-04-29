@@ -11,12 +11,55 @@ import (
     "strconv"
 )
 
+//  All of the feeds we monitor will be stored broken up by items already to
+// avoid parsing them more often than necessary. To get something started, I'm
+// making a hack datastore out of json files and raw xml snippets on disk. I
+// expect the interface to be agnostic enough to this backing store that I will
+// be able to change to something better later and not break anything.
+type Store interface {
+	//  A `Store` contains an `Index` for every feed, which needs to be created
+    // before it's used. Will error if one already exists.
+	CreateIndex(url string) (Index, error)
+    //  An array of `Item`s for the feed at url, oldest first, of length
+    // (`end` - `start`)
+	Get(url string, start int, end int) ([]Item, error)
+    // How many `Item`s stored for `url`?
+	NumItems(url string) int
+    // add `items` to the `Index` for `url`. They must be passed in oldest first
+	Update(url string, items []Item) error
+    // Getter for general-purpose metadata
+	GetInfo(url string, key string) (string, error)
+    // Setter for general-purpose metadata
+	SetInfo(url string, key string, val string) error
+}
+
+/* The `jsonStore` is a directory, with subdirectories that are the GUID for the
+  relevant `Index`. Each subdirectory has:
+/index.json (info)
+/offsets.json (where in files items are
+/0.xml (items 0-9)
+/1.xml (items 1-19)
+ [...]
+/n.xml (items n*10 - max)
+ items are stored as <item> elements, oldest first
+*/
+
+type jsonStore struct {
+    // root of the `jsonStore`
+    rootdir string
+    // function to convert a url to a subdirectory name
+    key func(string)string
+    // function to canonicalize a url
+    canon func(string) (string, error)
+}
+
+//  An `Index` holds information for a specific feed.
 /* index json obj:
 {'url': 'actual url used',
  'count': 'number of items',
  'hash': 'actual hash',
- 'others': {$url: $hash},
- 'guids': [set_of_stashed_guids],
+ 'others': {$url: $hash}, // as in, other urls that have collided with this hash
+ 'guids': [set_of_stashed_guids], // guids for items we've got
  'meta': {$key: $val} // for external use
 }
 */
@@ -31,44 +74,24 @@ type Index struct {
     offsets map[string]int64
 }
 
-/* store subdirectory:
-/index.json (info)
-/offsets.json (where in files items are
-/0.dat (items 0-9)
-/1.dat (items 1-19)
- [...]
-/n.dat (items n*10 - max)
-
-/0.xml (items 0-9)
-/1.xml (items 1-19)
- [...]
-/n.xml (items n*10 - max)
- items are stored as <item> elements, oldest first
-*/
-
-type Store struct {
-    rootdir string
-    key func(string)string
-    canon func(string) (string, error)
-}
-
-var canonCache = make(map[string]string)
-
-func NewStore(dir string) *Store {
+func NewJSONStore(dir string) *jsonStore {
     // expand dir to canonical rep
     // make sure it exists
-    ret := new(Store)
+    ret := new(jsonStore)
     ret.rootdir = dir
     ret.key = justmd5
     ret.canon = cachingFollowHttp
     return ret
 }
 
+//  create the key for an `url` by MD5'ing it. Eventually this will end up with
+// a collision, and that's handled by the `Index`.
 func justmd5(url string) string {
     ret := md5.Sum([]byte(url))
     return hex.EncodeToString(ret[:])
 }
 
+// canonicalize an `url` by following any redirects until we get data
 func followHttp(url string) (string, error) {
     data, err := http.Get(url)
     if err != nil {
@@ -80,6 +103,10 @@ func followHttp(url string) (string, error) {
     return data.Request.URL.String(), nil
 }
 
+//  canonicalize an `url` as above, but keep a cache of url->canonicalization
+// mappings so that we're not doing a fetch every time we want the canonical
+// url for something.
+var canonCache = make(map[string]string)
 func cachingFollowHttp(url string) (string, error) {
     if canonCache[url] != "" {
         return canonCache[url], nil
@@ -91,7 +118,7 @@ func cachingFollowHttp(url string) (string, error) {
     return ret, err
 }
 
-func fileof(s *Store, ind Index, item int) string {
+func fileof(s *jsonStore, ind Index, item int) string {
     retval := s.rootdir + ind.Hash + "/"
     if item == -1 {
         // special case, index
@@ -105,7 +132,7 @@ func fileof(s *Store, ind Index, item int) string {
     return retval
 }
 
-func (s *Store) indexFor(url string) (Index, error) {
+func (s *jsonStore) indexFor(url string) (Index, error) {
     url, err := s.canon(url)
     if err != nil {
         return Index{}, err
@@ -140,7 +167,7 @@ func (s *Store) indexFor(url string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) indexForHash(hash string) (Index, error) {
+func (s *jsonStore) indexForHash(hash string) (Index, error) {
     index, err := os.Open(s.rootdir + hash + "/index.json")
     if err != nil {
         return Index{}, err
@@ -167,7 +194,7 @@ func (s *Store) indexForHash(hash string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) CreateIndex(url string) (Index, error) {
+func (s *jsonStore) CreateIndex(url string) (Index, error) {
     url, err := s.canon(url)
     if err != nil {
         return Index{}, err
@@ -205,8 +232,7 @@ func (s *Store) CreateIndex(url string) (Index, error) {
     return ind, nil
 }
 
-func (s *Store) Get(url string, start int, end int) ([]Item, error) {
-    // we will return an array of items, oldest first, of length (end - start)
+func (s *jsonStore) Get(url string, start int, end int) ([]Item, error) {
     index, err := s.indexFor(url)
     if err != nil {
         return nil, err
@@ -214,7 +240,7 @@ func (s *Store) Get(url string, start int, end int) ([]Item, error) {
     return s.getInd(index, start, end)
 }
 
-func (s *Store) getInd(index Index, start int, end int) ([]Item, error) {
+func (s *jsonStore) getInd(index Index, start int, end int) ([]Item, error) {
     if start < 0 || end <= start {
         return nil, errors.New("invalid range")
     }
@@ -254,7 +280,7 @@ func (s *Store) getInd(index Index, start int, end int) ([]Item, error) {
     return ret, nil
 }
 
-func (s *Store) NumItems(url string) int {
+func (s *jsonStore) NumItems(url string) int {
     ind, err := s.indexFor(url)
     if err != nil {
         return 0
@@ -262,7 +288,7 @@ func (s *Store) NumItems(url string) int {
     return ind.Count
 }
 
-func (s *Store) saveIndex(index Index) error {
+func (s *jsonStore) saveIndex(index Index) error {
     serind, err := json.Marshal(index)
     if err != nil {
         return err
@@ -288,7 +314,7 @@ func (s *Store) saveIndex(index Index) error {
     return nil
 }
 
-func (s *Store) Update(url string, items []Item) error {
+func (s *jsonStore) Update(url string, items []Item) error {
     // items must be passed in oldest first
     ind, err := s.indexFor(url)
     if err != nil {
@@ -360,7 +386,7 @@ func (s *Store) Update(url string, items []Item) error {
     return nil
 }
 
-func (s *Store) GetInfo(url string, key string) (string, error) {
+func (s *jsonStore) GetInfo(url string, key string) (string, error) {
     ind, err := s.indexFor(url)
     if err != nil {
         return "", err
@@ -368,7 +394,7 @@ func (s *Store) GetInfo(url string, key string) (string, error) {
     return ind.Meta[key], nil
 }
 
-func (s *Store) SetInfo(url string, key string, val string) error {
+func (s *jsonStore) SetInfo(url string, key string, val string) error {
     ind, err := s.indexFor(url)
     if err == nil {
         if ind.Meta == nil {

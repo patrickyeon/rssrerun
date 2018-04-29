@@ -7,8 +7,8 @@ import (
 
     "github.com/patrickyeon/rssrerun/testhelp"
 
-    "github.com/moovweb/gokogiri"
-    "github.com/moovweb/gokogiri/xml"
+    "github.com/jbowtie/gokogiri"
+    "github.com/jbowtie/gokogiri/xml"
 )
 
 const (
@@ -18,9 +18,9 @@ const (
 func emptyStore() Store {
     _ = os.RemoveAll(TDir + "/store")
     _ = os.Mkdir(TDir + "/store", os.ModeDir | os.ModePerm)
-    ret := NewStore(TDir + "/store/")
+    ret := NewJSONStore(TDir + "/store/")
     ret.canon = func (url string) (string, error) {return url, nil}
-    return *ret
+    return Store(ret)
 }
 
 func createItems(n int, start time.Time) ([][]byte, []Item, error) {
@@ -135,7 +135,7 @@ func TestStoreAndRetrieveMany(t *testing.T) {
 
 func TestHashCollisions(t *testing.T) {
     s := emptyStore()
-    s.key = func (string) string { return "hashed" }
+    s.(*jsonStore).key = func (string) string { return "hashed" }
     url := "test://testurl.whatevs"
     aggrUrl := "test://break.stuff"
     s.CreateIndex(url)

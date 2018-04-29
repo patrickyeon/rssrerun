@@ -4,15 +4,23 @@ import (
     "errors"
     "time"
 
-    "github.com/moovweb/gokogiri"
-    "github.com/moovweb/gokogiri/xml"
+    "github.com/jbowtie/gokogiri"
+    "github.com/jbowtie/gokogiri/xml"
 )
 
+//  Interface for a single feed item/entry. I've normalized on using RSS terms
+// (hence calling out items and pubdates), and we only manipulate the bare
+// essential (publication date and guid, really).
 type Item interface {
+    // return the published date of the item
     PubDate() (time.Time, error)
+    // change the published date (this his how we do the rerun later)
     SetPubDate(date time.Time) (error)
+    // get the guid, or make one up
     Guid() (string, error)
+    // render the item as a string
     String() string
+    // the actual, parsed, xml.Node of the document
     Node() xml.Node
 }
 
@@ -21,14 +29,13 @@ type RssItem struct {
 }
 
 func (item *RssItem) PubDate() (time.Time, error) {
-    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
     for _, str := range []string{"pubDate", "pubdate", "PubDate", "PUBDATE"} {
         d, err := item.src.Search(str)
         if err == nil && len(d) > 0 {
             return parseDate(d[0].Content())
         }
     }
-    return zdate, errors.New("no pubdate")
+    return zeroDate(), errors.New("no pubdate")
 }
 
 func (item *RssItem) SetPubDate(date time.Time) (error) {
@@ -49,7 +56,7 @@ func (item *RssItem) Guid() (string, error) {
     if err == nil && len(gtag) > 0 {
         return gtag[0].Content(), nil
     }
-    // no guid tag? just concat title and link
+    // no guid tag? just concat title and link and hope it's unique
     title, err := item.src.Search("title")
     if err != nil {
         return "", err
@@ -80,7 +87,7 @@ type AtomItem struct {
 func (item *AtomItem) PubDate() (time.Time, error) {
     published, err := getChild(item.src, xpath("published"))
     if err != nil {
-        return time.Unix(0, 0), err
+        return zeroDate(), err
     }
     return parseDate(published.Content())
 }
@@ -117,8 +124,7 @@ func parseDate(s string) (time.Time, error) {
             return date, nil
         }
     }
-    zdate := time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
-    return zdate, errors.New("invalid date format")
+    return zeroDate(), errors.New("invalid date format")
 }
 
 func xpath(s string) string {
@@ -136,10 +142,15 @@ func getChild(parent xml.Node, tagName string) (xml.Node, error) {
     return ret[0], nil
 }
 
+// Given an array of bytes, parse them as an RSS item
 func MkItem(s []byte) (Item, error) {
     it, err := gokogiri.ParseXml(s)
     if err != nil {
         return nil, err
     }
     return &RssItem{it.Root()}, nil
+}
+
+func zeroDate() time.Time {
+    return time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
 }

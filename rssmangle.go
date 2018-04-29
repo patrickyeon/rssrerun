@@ -3,8 +3,8 @@ package rssrerun
 import (
     "errors"
     "time"
-    "github.com/moovweb/gokogiri"
-    "github.com/moovweb/gokogiri/xml"
+    "github.com/jbowtie/gokogiri"
+    "github.com/jbowtie/gokogiri/xml"
 )
 
 var (

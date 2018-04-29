@@ -1,0 +1,55 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "yETx47ke6UM4f0aQZmvHF8tJ0Lg=",
+			"path": "github.com/jbowtie/gokogiri",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"checksumSHA1": "pYPwTpovW+lIUb58aOZuTZftG+c=",
+			"path": "github.com/jbowtie/gokogiri/help",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"checksumSHA1": "xJD3yhxwE8VXS741wgWplhEdzsQ=",
+			"path": "github.com/jbowtie/gokogiri/html",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"checksumSHA1": "GYnhzFMWYi7kfsdt6Eh0y9VaBUA=",
+			"path": "github.com/jbowtie/gokogiri/util",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"checksumSHA1": "SihO+a8LiCiudZzYD4G5xknapRM=",
+			"path": "github.com/jbowtie/gokogiri/xml",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"checksumSHA1": "9fLUX2ttIRXryNOBjb/hvqRSeIg=",
+			"path": "github.com/jbowtie/gokogiri/xpath",
+			"revision": "40b48594ca1866cf5d28177629b42f8a387377de",
+			"revisionTime": "2017-09-25T22:18:39Z"
+		},
+		{
+			"path": "rss-rerun/datesource",
+			"revision": ""
+		},
+		{
+			"path": "rss-rerun/feedstore",
+			"revision": ""
+		},
+		{
+			"path": "rss-rerun/rssmangle",
+			"revision": ""
+		}
+	],
+	"rootPath": "github.com/patrickyeon/rssrerun"
+}

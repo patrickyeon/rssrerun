@@ -1,7 +1,7 @@
 package rssrerun
 
 import (
-    "github.com/moovweb/gokogiri"
+    "github.com/jbowtie/gokogiri"
 )
 
 type Outline struct {
