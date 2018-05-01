@@ -12,14 +12,25 @@ var (
     time.RFC1123, time.RFC1123Z}
 )
 
+//  Pretty much what it says on the tin: the XML representation of a feed.
 type Feed interface {
+    //  Return the document with only one item/entry tag. It is an empty tag and
+    // used as a placeholder to be populated with items/entries later.
     Wrapper() []byte
+    // Return the doc with its original items/entries populated.
     Bytes() []byte
+    // Return the doc with the placeholder replaced with `items`
     BytesWithItems(items []Item) []byte
+    // Accessor for the `Item`s parsed from the doc.
     Items() []Item
+    //  Return the most recent `n` `item`s, that would be replayed before `t`.
+    // Errors on no items. (TODO could probably just return a `nil` array)
     ShiftedAt(n int, t time.Time) ([]Item, error)
 }
 
+//  The method to shift a feed is the same wether RSS or Atom, so the work is
+// abstracted out to this function. The different implementations of feeds just
+// call here.
 func univShiftedAt(n int, t time.Time, f Feed, d *DateSource) ([]Item, error) {
     items := f.Items()
     // if item N is after time t, we want items (N-n-1 .. N-1) and then shift
@@ -42,9 +53,15 @@ func univShiftedAt(n int, t time.Time, f Feed, d *DateSource) ([]Item, error) {
 
     nret := n
     if nret + nskip > len(items) {
+        // we were asked for more items than are left after skipping ahead. The
+        // only time I see this happening is if `nskip == 0`, so I'm not sure
+        // why `nskip` is involved here. I would guess I hit an edge case at
+        // some point?
         nret = len(items) - nskip
     }
     ret := make([]Item, nret)
+    // TODO should I be making copies of `Item`s here? It seems weird to change
+    // their pubDates without making a copy.
     for i := 0; i < nret; i++ {
         // last -1 needed because its[len(its) - x] is (x - 1)'th from the back
         ret[nret - i - 1] = items[len(items) - (nskip + i) - 1]
@@ -77,6 +94,8 @@ func (f *RssFeed) makeItems() {
     }
 }
 
+//  Given an `xml.Document`, try to parse out an RSS feed and pull out the
+// `item` tags.
 func newRssRaw(doc xml.Document) (*RssFeed, error) {
     channels, err := doc.Root().Search("channel")
     if err != nil {
@@ -86,6 +105,7 @@ func newRssRaw(doc xml.Document) (*RssFeed, error) {
         return nil, errors.New("No <channel> tag for RSS feed")
     }
     if len(channels) > 1 {
+        // Spec doesn't allow this. No reason to believe it doesn't exist though
         return nil, errors.New("Too many <channel> tags for RSS feed")
     }
 
@@ -96,8 +116,10 @@ func newRssRaw(doc xml.Document) (*RssFeed, error) {
         return nil, err
     }
     if len(f.itemNodes) > 0 {
+        // insert a placeholder
         f.itemNodes[0].InsertBefore(doc.CreateElementNode("item"))
     }
+    // remove all the `item`s. Don't worry, we saved them in `f.itemNodes`.
     for _, item := range f.itemNodes {
         item.Unlink()
     }
@@ -166,6 +188,7 @@ func (a *AtomFeed) Wrapper() []byte {
     return a.root.ToBuffer(nil)
 }
 
+// Try to extract a Atom feed from an `xml.Document`
 func newAtomRaw(doc xml.Document)  (*AtomFeed, error) {
     if doc.Root().Name() != "feed" {
         return nil, errors.New("<feed> tag missing or not root for Atom feed")
@@ -177,6 +200,7 @@ func newAtomRaw(doc xml.Document)  (*AtomFeed, error) {
     if err != nil {
         return nil, err
     }
+    // as in the RSS case, create a placeholder and remove all the `entry` tags
     if len(a.entries) > 0 {
         first := a.entries[0]
         placeholder := doc.CreateElementNode("entry")
@@ -195,6 +219,7 @@ func newAtomRaw(doc xml.Document)  (*AtomFeed, error) {
     return a, nil
 }
 
+// Make a best guess at parsing a document as an RSS or Atom feed.
 func NewFeed(t []byte, d *DateSource) (Feed, error) {
     doc, err := gokogiri.ParseXml(t)
     if err != nil {
@@ -216,6 +241,7 @@ func NewFeed(t []byte, d *DateSource) (Feed, error) {
                            "\", nor as ATOM: \"" + atomErr.Error() + "\"")
 }
 
+// Here is where the magic of re-populating a feed from the placeholder happens
 func insertForRender(parent xml.Node, children []xml.Node, where string) []byte {
     placeholder, err := parent.Search(where)
     if err != nil {
@@ -230,8 +256,10 @@ func insertForRender(parent xml.Node, children []xml.Node, where string) []byte 
         lastchild = child
     }
     placeholder[0].Unlink()
+    // prepare a copy to return
     retval := parent.ToBuffer(nil)
-    if err  = children[0].AddPreviousSibling(placeholder); err != nil {
+    // go back to the original feed, with place holder
+    if err = children[0].AddPreviousSibling(placeholder); err != nil {
         return nil
     }
     for _, child := range children {
