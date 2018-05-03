@@ -15,7 +15,7 @@ var templates = template.Must(template.ParseFiles("public/about.html",
 var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
                               time.Wednesday, time.Thursday, time.Friday,
                               time.Saturday}
-var store = rssrerun.NewJSONStore("data/stores/podcaststore/")
+var store = rssrerun.NewJSONStore("data/stores/podcasts/")
 
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) error {
     err := templates.ExecuteTemplate(w, name, data)
@@ -88,10 +88,10 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
     }
     // fake out the pubdates on those items
     oldDates := make([]time.Time, len(items))
-    for i := len(items) - 1; i >= 0; i-- {
+    for i, it := range(items) {
         nd, _ := ds.NextDate()
-        oldDates[i], _ = items[i].PubDate()
-        items[i].SetPubDate(nd)
+        oldDates[i], _ = it.PubDate()
+        it.SetPubDate(nd)
     }
 
     type lnk struct {
@@ -101,8 +101,9 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
     for i, it := range items {
         date, _ := it.PubDate()
         guid, _ := it.Guid()
-        ret[i] = lnk{titleish(it), guid, date.Format("Mon Jan 2 2006"),
-                     oldDates[i].Format("Mon Jan 2 2006")}
+        ret[nItems - i - 1] = lnk{titleish(it), guid,
+                                  date.Format("Mon Jan 2 2006"),
+                                  oldDates[i].Format("Mon Jan 2 2006")}
     }
 
     type prevDat struct {
@@ -165,14 +166,14 @@ func feedHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // mangle the pubdates
-    for i := len(items) - 1; i >= 0; i-- {
+    for i, it := range(items) {
         nd, _ := ds.NextDate()
         if i < 0 || i >= len(items) {
             errHandler(w, "invalid i: " + strconv.Itoa(i) +
                           " len(items): " + strconv.Itoa(len(items)))
             return
         }
-        items[i].SetPubDate(nd)
+        it.SetPubDate(nd)
     }
 
     // build and return the feed
@@ -183,6 +184,11 @@ func feedHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     fd, _ := rssrerun.NewFeed([]byte(wrap), nil)
+    // flip the ordering of `items`
+    for i := 0; i < len(items) / 2; i++ {
+        j := len(items) - i - 1
+        items[i], items[j] = items[j], items[i]
+    }
     fmt.Fprint(w, string(fd.BytesWithItems(items)))
 }
 

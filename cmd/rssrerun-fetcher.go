@@ -27,7 +27,7 @@ type Stats struct {
     NstoreErrors int
 }
 
-func maybeFetchUrl(s *rssrerun.Store, url string) (int, []byte, error) {
+func maybeFetchUrl(s rssrerun.Store, url string) (int, []byte, error) {
     etag, _ := s.GetInfo(url, "etag")
     lastMod, _ := s.GetInfo(url, "last-modified")
     req, err := http.NewRequest("GET", url, nil)
@@ -136,13 +136,20 @@ func main() {
             log.Printf("RSS error: %s", err)
             continue
         }
-        nItems := len(rss.Items)
+        nItems := len(rss.Items())
         stats.Nitems += nItems
         precount := store.NumItems(u)
         if precount == 0 {
             store.CreateIndex(u)
         }
-        err = store.Update(u, rss.Items)
+        // We need to flip the ordering of the `items`, so that they are stored
+        // oldest-first.
+        its := rss.Items()
+        for j := 0; j < len(its) / 2; j++ {
+            k := len(its) - j - 1
+            its[j], its[k] = its[k], its[j]
+        }
+        err = store.Update(u, rss.Items())
         if err != nil {
             stats.NstoreErrors += 1
             log.Printf("%d items, store error: %s\n", nItems, err)
