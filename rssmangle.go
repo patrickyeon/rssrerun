@@ -22,17 +22,18 @@ type Feed interface {
     // Return the doc with the placeholder replaced with `items`
     BytesWithItems(items []Item) []byte
     // Accessor for the `Item`s parsed from the doc.
-    Items() []Item
+    Items(start int, end int) []Item
+    LenItems() int
+    Item(idx int) Item
     //  Return the most recent `n` `item`s, that would be replayed before `t`.
     // Errors on no items. (TODO could probably just return a `nil` array)
     ShiftedAt(n int, t time.Time) ([]Item, error)
 }
 
-//  The method to shift a feed is the same wether RSS or Atom, so the work is
+//  The method to shift a feed is the same whether RSS or Atom, so the work is
 // abstracted out to this function. The different implementations of feeds just
 // call here.
 func univShiftedAt(n int, t time.Time, f Feed, d *DateSource) ([]Item, error) {
-    items := f.Items()
     // if item N is after time t, we want items (N-n-1 .. N-1) and then shift
     ndays := d.DatesInRange(d.StartDate, t)
     // n is the number of items we want
@@ -45,26 +46,27 @@ func univShiftedAt(n int, t time.Time, f Feed, d *DateSource) ([]Item, error) {
     if nskip < 0 {
         nskip = 0
     }
-    if nskip > len(items) {
+    nItems := f.LenItems()
+    if nskip > nItems {
         return nil, errors.New("too old")
     }
     d.lastDate = d.StartDate.AddDate(0, 0, -1)
     d.SkipForward(nskip)
 
     nret := n
-    if nret + nskip > len(items) {
+    if nret + nskip > nItems {
         // we were asked for more items than are left after skipping ahead. The
         // only time I see this happening is if `nskip == 0`, so I'm not sure
         // why `nskip` is involved here. I would guess I hit an edge case at
         // some point?
-        nret = len(items) - nskip
+        nret = nItems - nskip
     }
     ret := make([]Item, nret)
     // TODO should I be making copies of `Item`s here? It seems weird to change
     // their pubDates without making a copy.
     for i := 0; i < nret; i++ {
         // last -1 needed because its[len(its) - x] is (x - 1)'th from the back
-        ret[nret - i - 1] = items[len(items) - (nskip + i) - 1]
+        ret[nret - i - 1] = f.Item(nItems - (nskip + i) - 1)
         nd, _ := d.NextDate()
         ret[nret - i - 1].SetPubDate(nd)
     }
@@ -82,8 +84,16 @@ func (f *RssFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
     return univShiftedAt(n, t, f, f.d)
 }
 
-func (f *RssFeed) Items() []Item {
-    return f.items
+func (f *RssFeed) Items(start, end int) []Item {
+    return f.items[start:end]
+}
+
+func (f *RssFeed) Item(idx int) Item {
+    return f.items[idx]
+}
+
+func (f *RssFeed) LenItems() int {
+    return len(f.items)
 }
 
 // TODO error on already existing here?
@@ -160,8 +170,16 @@ func (a *AtomFeed) makeItems() {
     }
 }
 
-func (a *AtomFeed) Items() []Item {
-    return a.items
+func (a *AtomFeed) Items(start, end int) []Item {
+    return a.items[start:end]
+}
+
+func (a *AtomFeed) Item(idx int) Item {
+    return a.items[idx]
+}
+
+func (a *AtomFeed) LenItems() int {
+    return len(a.items)
 }
 
 func (a *AtomFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {

@@ -9,6 +9,7 @@ import (
     "net/http"
     "os"
     "strconv"
+    "time"
 )
 
 //  All of the feeds we monitor will be stored broken up by items already to
@@ -31,6 +32,8 @@ type Store interface {
 	GetInfo(url string, key string) (string, error)
     // Setter for general-purpose metadata
 	SetInfo(url string, key string, val string) error
+    // Return a struct that satisfies the `Feed` interface but is backed by us
+    FeedFor(url string, ds *DateSource) (Feed, error)
 }
 
 /* The `jsonStore` is a directory, with subdirectories that are the GUID for the
@@ -285,7 +288,11 @@ func (s *jsonStore) NumItems(url string) int {
     if err != nil {
         return 0
     }
-    return ind.Count
+    return s.numItems(ind)
+}
+
+func (s *jsonStore) numItems(idx Index) int {
+    return idx.Count
 }
 
 func (s *jsonStore) saveIndex(index Index) error {
@@ -391,17 +398,89 @@ func (s *jsonStore) GetInfo(url string, key string) (string, error) {
     if err != nil {
         return "", err
     }
-    return ind.Meta[key], nil
+    return s.getInfo(ind, key), nil
+}
+
+func (s *jsonStore) getInfo(idx Index, key string) string {
+    return idx.Meta[key]
 }
 
 func (s *jsonStore) SetInfo(url string, key string, val string) error {
     ind, err := s.indexFor(url)
     if err == nil {
-        if ind.Meta == nil {
-            ind.Meta = make(map[string]string)
-        }
-        ind.Meta[key] = val
-        err = s.saveIndex(ind)
+        err = s.setInfo(ind, key, val)
     }
     return err
+}
+
+func (s *jsonStore) setInfo(idx Index, key string, val string) error {
+    if idx.Meta == nil {
+        idx.Meta = make(map[string]string)
+    }
+    idx.Meta[key] = val
+    return s.saveIndex(idx)
+}
+
+func (s *jsonStore) FeedFor(url string, ds *DateSource) (Feed, error) {
+    idx, err := s.indexFor(url)
+    if err != nil {
+        return nil, err
+    }
+    wrap := s.getInfo(idx, "wrapper")
+    feed, err := NewFeed([]byte(wrap), nil)
+    if err != nil {
+        return nil, err
+    }
+    return &StoredFeed{feed, ds, idx, s}, nil
+}
+
+type StoredFeed struct {
+    feed Feed
+    ds *DateSource
+    idx Index
+    store *jsonStore
+}
+
+//  Some of the `StoredFeed` functions will just be pass-through to the
+// underlying `Feed` interface.
+
+func (f *StoredFeed) Wrapper() []byte {
+    return f.feed.Wrapper()
+}
+func (f *StoredFeed) BytesWithItems(items []Item) []byte {
+    return f.feed.BytesWithItems(items)
+}
+
+//  Other functions need a bit more thought
+
+func (f *StoredFeed) Items(start, end int) []Item {
+    ret, err := f.store.getInd(f.idx, start, end)
+    if err != nil {
+        panic(err.Error())
+    }
+    return ret
+}
+
+func (f *StoredFeed) Item(idx int) Item {
+    ret, err := f.store.getInd(f.idx, idx, idx + 1)
+    if err != nil {
+        panic(err.Error())
+    }
+    return ret[0]
+}
+
+func (f *StoredFeed) LenItems() int {
+    return f.idx.Count
+}
+
+func (f *StoredFeed) Bytes() []byte {
+    // I don't know, I don't really want to expose *everything*
+    // FIXME return something sensible, maybe 20 most recent items?
+    return f.BytesWithItems(nil)
+}
+
+// Finally, this one.
+
+func (f *StoredFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
+    return univShiftedAt(n, t, f, f.ds)
 }

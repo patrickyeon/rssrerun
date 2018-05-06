@@ -33,7 +33,7 @@ func createItems(n int, start time.Time) ([][]byte, []Item, error) {
     if err != nil {
         return nil, nil, err
     }
-    return itemBytes, feed.Items(), nil
+    return itemBytes, feed.Items(0, feed.LenItems()), nil
 }
 
 func parsedItems(n int, rss *testhelp.RSS) ([]xml.Node, error) {
@@ -243,8 +243,31 @@ func TestNoGuid(t *testing.T) {
     }
 
     s.CreateIndex(url)
-    err = s.Update(url, feed.Items())
+    err = s.Update(url, feed.Items(0, feed.LenItems()))
     if err != nil {
         t.Fatal(err)
     }
+}
+
+func TestStoredFeedTimeShift(t *testing.T) {
+    testTimeShift(t, testhelp.CreateAndPopulateRSS(10, testhelp.StartDate()),
+                  storedFeedTesterNewFeed)
+}
+
+func storedFeedTesterNewFeed(doc []byte, ds *DateSource) (Feed, error) {
+    s := emptyStore()
+    url := "test://testurl.whatnot"
+    prefeed, err := NewFeed(doc, nil)
+    if err != nil {
+        return nil, err
+    }
+    s.CreateIndex(url)
+    err = s.Update(url, prefeed.Items(0, prefeed.LenItems()))
+    if err != nil {
+        return nil, err
+    }
+    if err = s.SetInfo(url, "wrapper", string(prefeed.Wrapper())); err != nil {
+        return nil, err
+    }
+    return s.FeedFor(url, ds)
 }
