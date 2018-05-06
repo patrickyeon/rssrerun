@@ -473,14 +473,6 @@ func (f *StoredFeed) LenItems() int {
     return f.idx.Count
 }
 
-func (f *StoredFeed) Bytes() []byte {
-    // I don't know, I don't really want to expose *everything*
-    // FIXME return something sensible, maybe 20 most recent items?
-    return f.BytesWithItems(nil)
-}
-
-// Finally, this one.
-
 func (f *StoredFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
     return univShiftedAt(n, t, f, f.ds)
 }

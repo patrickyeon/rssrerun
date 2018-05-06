@@ -53,7 +53,7 @@ func TestRssHandleCDATA(t *testing.T) {
 
     if got := feed.LenItems(); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
-        t.Error(string(feed.Bytes()))
+        t.Error(string(feed.BytesWithItems(feed.Items(0, feed.LenItems()))))
     }
 }
 
@@ -68,7 +68,7 @@ func TestAtomHandleCDATA(t *testing.T) {
 
     if got := feed.LenItems(); got != 4 {
         t.Logf("CDATA parsing failed, expected %d items, got %d", 4, got)
-        t.Error(string(feed.Bytes()))
+        t.Error(string(feed.BytesWithItems(feed.Items(0, feed.LenItems()))))
     }
 }
 

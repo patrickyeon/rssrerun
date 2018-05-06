@@ -17,8 +17,6 @@ type Feed interface {
     //  Return the document with only one item/entry tag. It is an empty tag and
     // used as a placeholder to be populated with items/entries later.
     Wrapper() []byte
-    // Return the doc with its original items/entries populated.
-    Bytes() []byte
     // Return the doc with the placeholder replaced with `items`
     BytesWithItems(items []Item) []byte
     // Accessor for the `Item`s parsed from the doc.
@@ -140,10 +138,6 @@ func (f *RssFeed) Wrapper() []byte {
     return f.root.ToBuffer(nil)
 }
 
-func (f *RssFeed) Bytes() []byte {
-    return f.bytesWithNodes(f.itemNodes)
-}
-
 func (f *RssFeed) BytesWithItems(items []Item) []byte {
     its := make([]xml.Node, len(items))
     for i, item := range items {
@@ -184,10 +178,6 @@ func (a *AtomFeed) LenItems() int {
 
 func (a *AtomFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
     return univShiftedAt(n, t, a, a.d)
-}
-
-func (a *AtomFeed) Bytes() []byte {
-    return a.bytesWithNodes(a.entries)
 }
 
 func (f *AtomFeed) BytesWithItems(items []Item) []byte {
