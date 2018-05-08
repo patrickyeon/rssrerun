@@ -136,7 +136,7 @@ func main() {
             log.Printf("RSS error: %s", err)
             continue
         }
-        nItems := len(rss.Items())
+        nItems := rss.LenItems()
         stats.Nitems += nItems
         precount := store.NumItems(u)
         if precount == 0 {
@@ -144,12 +144,11 @@ func main() {
         }
         // We need to flip the ordering of the `items`, so that they are stored
         // oldest-first.
-        its := rss.Items()
-        for j := 0; j < len(its) / 2; j++ {
-            k := len(its) - j - 1
-            its[j], its[k] = its[k], its[j]
+        its := make([]rssrerun.Item, nItems)
+        for j := 0; j < nItems; j++ {
+            its[nItems - j - 1] = rss.Item(j)
         }
-        err = store.Update(u, rss.Items())
+        err = store.Update(u, its)
         if err != nil {
             stats.NstoreErrors += 1
             log.Printf("%d items, store error: %s\n", nItems, err)
