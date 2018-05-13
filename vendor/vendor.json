@@ -39,16 +39,34 @@
 			"revisionTime": "2017-09-25T22:18:39Z"
 		},
 		{
-			"path": "rss-rerun/datesource",
-			"revision": ""
+			"checksumSHA1": "sH2ehBZuEJh2Ro/Ro4BpehZmu9A=",
+			"path": "github.com/rifflock/lfshook",
+			"revision": "62f5e0662816a462697d29f396fd19376d17f65b",
+			"revisionTime": "2018-03-13T18:34:24Z"
 		},
 		{
-			"path": "rss-rerun/feedstore",
-			"revision": ""
+			"checksumSHA1": "9ZSqjmvF/JE6Qj/5xOoCAmUgXz8=",
+			"path": "github.com/sirupsen/logrus",
+			"revision": "778f2e774c725116edbc3d039dc0dfc1cc62aae8",
+			"revisionTime": "2018-03-29T22:59:52Z"
 		},
 		{
-			"path": "rss-rerun/rssmangle",
-			"revision": ""
+			"checksumSHA1": "BGm8lKZmvJbf/YOJLeL1rw2WVjA=",
+			"path": "golang.org/x/crypto/ssh/terminal",
+			"revision": "2d027ae1dddd4694d54f7a8b6cbe78dca8720226",
+			"revisionTime": "2018-05-09T20:48:04Z"
+		},
+		{
+			"checksumSHA1": "HlNJphC1tQkyRMTsqojxpRx5pKE=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "7dfd1290c7917b7ba22824b9d24954ab3002fe24",
+			"revisionTime": "2018-05-09T21:44:12Z"
+		},
+		{
+			"checksumSHA1": "+mZiO0TdI05VboObjo18vs4sEbg=",
+			"path": "golang.org/x/sys/windows",
+			"revision": "7dfd1290c7917b7ba22824b9d24954ab3002fe24",
+			"revisionTime": "2018-05-09T21:44:12Z"
 		}
 	],
 	"rootPath": "github.com/patrickyeon/rssrerun"

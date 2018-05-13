@@ -2,22 +2,21 @@ package main
 
 import (
     "flag"
-    "log"
     "io/ioutil"
     "net/http"
     "os"
     "strings"
 
     "github.com/patrickyeon/rssrerun"
+    log "github.com/sirupsen/logrus"
+    "github.com/rifflock/lfshook"
 )
 
 var OpmlFile string
 var StoreDir string
-
-func init() {
-    flag.StringVar(&OpmlFile, "opml", "", "Feed list in opml format")
-    flag.StringVar(&StoreDir, "store", "", "Directory of the feedstore")
-}
+var LogFile string
+var LogQuiet bool
+var LogVerbose bool
 
 type Stats struct {
     HttpCodes map[int]int
@@ -25,6 +24,14 @@ type Stats struct {
     NnewItems int
     NparseErrors int
     NstoreErrors int
+}
+
+func init() {
+    flag.StringVar(&OpmlFile, "opml", "", "Feed list in opml format")
+    flag.StringVar(&StoreDir, "store", "", "Directory of the feedstore")
+    flag.StringVar(&LogFile, "logfile", "", "File to append logs into")
+    flag.BoolVar(&LogQuiet, "q", false, "Only report errors")
+    flag.BoolVar(&LogVerbose, "v", false, "Report info, warn, errors")
 }
 
 func maybeFetchUrl(s rssrerun.Store, url string) (int, []byte, error) {
@@ -87,6 +94,27 @@ func main() {
         log.Fatal("opml and store must both be passed")
         return
     }
+    // Set up logging. Yes it's intentional that verbose overrides quiet.
+    log.SetLevel(log.WarnLevel)
+    if LogQuiet {
+        log.SetLevel(log.ErrorLevel)
+    }
+    if LogVerbose {
+        log.SetLevel(log.InfoLevel)
+    }
+
+    if LogFile != "" {
+        logfd, err := os.OpenFile(LogFile,
+                                  os.O_WRONLY|os.O_APPEND|os.O_CREATE,
+                                  0666)
+        if err != nil {
+            log.WithFields(log.Fields{
+                "filename": LogFile,
+            }).Fatal("Could not open/create logfile!")
+        }
+        defer logfd.Close()
+        log.AddHook(lfshook.NewHook(logfd, &log.JSONFormatter{}))
+    }
 
     if StoreDir[len(StoreDir) - 1] != os.PathSeparator {
         StoreDir += string(os.PathSeparator)
@@ -107,33 +135,41 @@ func main() {
         log.Fatal(err)
         return
     }
+    log.WithFields(log.Fields{
+        "opml file":       OpmlFile,
+        "store directory": StoreDir,
+    }).Info("starting run")
 
     stats := Stats{make(map[int]int), 0, 0, 0, 0}
 
-    for i, outline := range feedlist.Outlines {
+    for _, outline := range feedlist.Outlines {
         u := strings.TrimSpace(outline.Url)
         if len(u) == 0 {
             continue
         }
         code, data, err := maybeFetchUrl(store, u)
         if err != nil {
-            log.Printf("%d: %s", i, u)
-            log.Printf("Fetching error: %s", err)
+            log.WithFields(log.Fields{
+                "HTTP code": code,
+                "err msg":   err,
+                "url":       u,
+            }).Warn("Fetching error")
             continue
         }
         stats.HttpCodes[code] += 1
-        if code == 304 {
-            continue
-        }
-        log.Printf("%d: %s", i, u)
-        log.Printf("HTTP code %d, %d bytes", code, len(data))
+        log.WithFields(log.Fields{
+            "HTTP code": code,
+            "data len":  len(data),
+            "url":       u,
+        }).Info("URL Fetched")
+
         if code != 200 {
             continue
         }
         rss, err := rssrerun.NewFeed(data, nil)
         if err != nil {
             stats.NparseErrors += 1
-            log.Printf("RSS error: %s", err)
+            log.WithFields(log.Fields{"err msg": err}).Error("RSS error")
             continue
         }
         nItems := rss.LenItems()
@@ -151,17 +187,27 @@ func main() {
         err = store.Update(u, its)
         if err != nil {
             stats.NstoreErrors += 1
-            log.Printf("%d items, store error: %s\n", nItems, err)
+            log.WithFields(log.Fields{
+                "err msg":   err,
+                "url":       u,
+                "num items": nItems,
+            }).Error("Store update failed.")
             continue
         }
         store.SetInfo(u, "wrapper", string(rss.Wrapper()))
         postcount := store.NumItems(u)
-        log.Printf("%d items, stored %d -> %d", nItems, precount, postcount)
+        log.WithFields(log.Fields{
+            "url":           u,
+            "num items":     nItems,
+            "num new items": postcount - precount,
+        }).Info("Store updated")
         stats.NnewItems += (postcount - precount)
     }
-    log.Printf("%d parse errors, %d store errors, %d items (%d new)\n",
-               stats.NparseErrors, stats.NstoreErrors, stats.Nitems,
-               stats.NnewItems)
-    log.Printf("%d @200, %d @304, %d @404", stats.HttpCodes[200],
-               stats.HttpCodes[304], stats.HttpCodes[404])
+    log.WithFields(log.Fields{
+        "num parse errors": stats.NparseErrors,
+        "num storage error": stats.NstoreErrors,
+        "num items fetched": stats.Nitems,
+        "num new items stored": stats.NnewItems,
+        "HTTP codes": stats.HttpCodes,
+    }).Info("Run complete")
 }
