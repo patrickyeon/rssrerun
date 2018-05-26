@@ -7,6 +7,7 @@ import (
     "io"
     "net/http"
     "regexp"
+    "sort"
     "strings"
 )
 
@@ -18,6 +19,8 @@ type Memento struct {
     Url string
     Params map[string]string
 }
+
+type memslice []Memento
 
 func nilMemento() (Memento) {
     return Memento{"", nil}
@@ -90,36 +93,38 @@ func inArray(needle string, haystack []string) bool {
     return false
 }
 
-// Two options here, either the timemap references all the timemaps that went
-// into it, or it references none of them, as they are not places to get more
-// information that's not here.
-// I mean, I guess the result can be either of those, but it would inform the
-// naive approach.
-// I prefer that the result does not contain redundant references.
-// This means that part of every call needs to return the timemaps traversed, so
-// that we know not to call them later. So there's SpiderTimeMap, that calls
-// spiderRecurse (or something), which can return (mementos, tmaps, error).
+// be able to use the `sort` library
+func (mem memslice) Less(i, j int) bool {
+    return mem[i].Params["datetime"] > mem[j].Params["datetime"]
+}
+func (mem memslice) Swap(i, j int) {
+    temp := mem[i]
+    mem[i] = mem[j]
+    mem[j] = temp
+}
+func (mem memslice) Len() int {
+    return len(mem)
+}
 
+//  Recurse through any timemaps linked, also fetching from them. Return with 
+// a TimeMap that has all of the mementos, but no hint that there were other
+// TimeMaps.
 func SpiderTimeMap(url string) (*TimeMap, error) {
     tmap, err := recurseSpider(url, nil)
     if err != nil {
         return nil, err
     }
-    nDel := 0
-    for i := 0; i < len(tmap.Links) - nDel; {
-        if tmap.Links[i].Params["rel"] == "timemap" {
-            if i + 1 + nDel >= len(tmap.Links) {
-                tmap.Links[i] = nilMemento()
-            } else {
-                tmap.Links[i] = tmap.Links[i + 1 + nDel]
+    next := 0
+    for i := 0; i < len(tmap.Links); i++ {
+        if tmap.Links[i].Params["rel"] != "timemap" {
+            if i != next {
+                tmap.Links[next] = tmap.Links[i]
             }
-            nDel++
-        } else {
-            i++
+            next++
         }
     }
-    tmap.Links = tmap.Links[:len(tmap.Links) - nDel]
-    // TODO: sort the mementos
+    tmap.Links = tmap.Links[:next]
+    sort.Sort(memslice(tmap.Links))
     return tmap, nil
 }
 

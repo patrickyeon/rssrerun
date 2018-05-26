@@ -129,8 +129,15 @@ func TestSeriesOfTimeMaps(t *testing.T) {
     if nlinks := len(timemap.Links); nlinks != 7 {
         t.Errorf("Didn't get all links. Expected 7, got %d.", nlinks)
     }
-    if nmems := len(timemap.GetMementos()); nmems != 5 {
+    result := timemap.GetMementos()
+    if nmems := len(result); nmems != 5 {
         t.Errorf("Didn't get all mementos. Expected 5, got %d.", nmems)
+    }
+    for i := 0; i < len(mementos); i++ {
+        if result[i].Url != mementos[i] {
+            t.Errorf("Out of order, expected %s got %s.",
+                     mementos[i], result[i].Url)
+        }
     }
 }
 
