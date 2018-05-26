@@ -79,10 +79,8 @@ func TestGetMementos (t *testing.T) {
 
 func TestTMap(t *testing.T) {
     tm := initTMap("http://example.com", "http://timegate.com/example.com")
-    tm.addMemento("http://timegate.com/2/example.com",
-                  time.Date(2018, 4, 4, 0, 0, 0, 0, time.UTC))
-    tm.addMemento("http://timegate.com/1/example.com",
-                  time.Date(2018, 2, 3, 0, 0, 0, 0, time.UTC))
+    tm.addMemento("http://timegate.com/2/example.com", mkDate(2018, 4, 4))
+    tm.addMemento("http://timegate.com/1/example.com", mkDate(2018, 2, 3))
     res, err := ParseTimeMap(tm.toReader())
     if err != nil {
         t.Fatal(err)
@@ -106,15 +104,13 @@ func TestSeriesOfTimeMaps(t *testing.T) {
 
     tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
     for i := 0; i < 2; i++ {
-        tm1.addMemento(mementos[i], time.Date(2018, 3, 30 - i,
-                                              0, 0, 0, 0, time.UTC))
+        tm1.addMemento(mementos[i], mkDate(2018, 3, 30 - i))
     }
     ts1 := tmServer(tm1)
     defer ts1.Close()
     tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
     for i := 2; i < 5; i++ {
-        tm2.addMemento(mementos[i], time.Date(2018, 3, 30 - i,
-                                              0, 0, 0, 0, time.UTC))
+        tm2.addMemento(mementos[i], mkDate(2018, 3, 30 - i))
     }
     tm2.addTMap(ts1.URL)
     ts2 := tmServer(tm2)
@@ -140,6 +136,87 @@ func TestSeriesOfTimeMaps(t *testing.T) {
         }
     }
 }
+
+func TestCycleOfTimeMaps(t *testing.T) {
+    mementos := []string{
+        "http://timegate.com/1/example.com",
+        "http://timegate.com/2/example.com",
+        "http://timegate.com/3/example.com",
+        "http://timegate.com/4/example.com",
+        "http://timegate.com/5/example.com",
+    }
+    tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
+    ts1 := tmServer(tm1)
+    defer ts1.Close()
+    tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
+    tm2.addTMap(ts1.URL)
+    ts2 := tmServer(tm2)
+    defer ts2.Close()
+    for i := 0; i < 2; i++ {
+        tm1.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
+    }
+    for i := 2; i < 5; i++ {
+        tm2.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
+    }
+    tm1.addTMap(ts2.URL)
+
+    //  this will also prove out that we can modify an underlying tmap after
+    // calling `tmServer`
+    timemap, err := SpiderTimeMap(ts1.URL)
+    if err != nil {
+        t.Fatal(err)
+    }
+    mems := timemap.GetMementos()
+    if len(mems) != 5 {
+        t.Errorf("Didn't get all mementos. Expected 5, got %d.", len(mems))
+    }
+    for i := 0; i < len(mementos); i++ {
+        if mems[i].Url != mementos[i] {
+            t.Errorf("Out of order, expected %s got %s.",
+                     mementos[i], mems[i].Url)
+        }
+    }
+}
+
+func TestOverlapTimeMaps(t *testing.T) {
+    mementos := []string{
+        "http://timegate.com/1/example.com",
+        "http://timegate.com/2/example.com",
+        "http://timegate.com/3/example.com",
+        "http://timegate.com/4/example.com",
+        "http://timegate.com/5/example.com",
+    }
+    tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
+    ts1 := tmServer(tm1)
+    defer ts1.Close()
+    tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
+    tm2.addTMap(ts1.URL)
+    ts2 := tmServer(tm2)
+    defer ts2.Close()
+    // note that mementos[2] is added twice
+    for i := 0; i < 3; i++ {
+        tm1.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
+    }
+    for i := 2; i < 5; i++ {
+        tm2.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
+    }
+
+    timemap, err := SpiderTimeMap(ts2.URL)
+    if err != nil {
+        t.Fatal(err)
+    }
+    mems := timemap.GetMementos()
+    if len(mems) != 5 {
+        t.Errorf("Didn't get all mementos. Expected 5, got %d.", len(mems))
+    }
+    for i := 0; i < len(mementos); i++ {
+        if mems[i].Url != mementos[i] {
+            t.Errorf("Out of order, expected %s got %s.",
+                     mementos[i], mems[i].Url)
+        }
+    }
+}
+
 
 // tools used to build timemaps, test the fetching, etc.
 type mmnto struct {
@@ -188,4 +265,8 @@ func tmServer(t *tMap) *httptest.Server {
                                                     r *http.Request) {
             fmt.Fprint(w, t.toString())
     }))
+}
+
+func mkDate(year, month, day int) time.Time {
+    return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 }

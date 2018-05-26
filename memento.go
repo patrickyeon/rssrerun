@@ -114,17 +114,29 @@ func SpiderTimeMap(url string) (*TimeMap, error) {
     if err != nil {
         return nil, err
     }
-    next := 0
+    mementos := tmap.GetMementos()
+    others := []Memento{}
     for i := 0; i < len(tmap.Links); i++ {
-        if tmap.Links[i].Params["rel"] != "timemap" {
-            if i != next {
-                tmap.Links[next] = tmap.Links[i]
-            }
-            next++
+        if (tmap.Links[i].Params["rel"] != "timemap" &&
+            !strings.HasSuffix(tmap.Links[i].Params["rel"], "memento")) {
+            others = append(others, tmap.Links[i])
         }
     }
-    tmap.Links = tmap.Links[:next]
-    sort.Sort(memslice(tmap.Links))
+    sort.Sort(memslice(mementos))
+    last := 0
+    for i := 1; i < len(mementos); i++ {
+        //  need to get rid of any duplicate URLs. Making the assumption that
+        // they will have the same datetime, so will have sorted right beside
+        // each other.
+        if mementos[last].Url != mementos[i].Url {
+            last++
+            if last != i {
+                mementos[last] = mementos[i]
+            }
+        }
+    }
+
+    tmap.Links = append(others, mementos[:last + 1]...)
     return tmap, nil
 }
 
