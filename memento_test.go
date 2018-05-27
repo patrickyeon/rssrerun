@@ -94,29 +94,20 @@ func TestTMap(t *testing.T) {
 }
 
 func TestSeriesOfTimeMaps(t *testing.T) {
-    mementos := []string{
-        "http://timegate.com/1/example.com",
-        "http://timegate.com/2/example.com",
-        "http://timegate.com/3/example.com",
-        "http://timegate.com/4/example.com",
-        "http://timegate.com/5/example.com",
-    }
-
-    tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
-    for i := 0; i < 2; i++ {
-        tm1.addMemento(mementos[i], mkDate(2018, 3, 30 - i))
-    }
-    ts1 := tmServer(tm1)
+    mementos := mkUrls("http://timegate.com/%d/example.com", 5)
+    tm1, ts1 := mkServer("http://example.com",
+                         "http://timegate.com/example.com",
+                         mementos[:2],
+                         mkDate(2018, 3, 30))
     defer ts1.Close()
-    tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
-    for i := 2; i < 5; i++ {
-        tm2.addMemento(mementos[i], mkDate(2018, 3, 30 - i))
-    }
-    tm2.addTMap(ts1.URL)
-    ts2 := tmServer(tm2)
+    _, ts2 := mkServer("http://example.com",
+                       "http://timegate.com/b/example.com",
+                       mementos[2:],
+                       mkDate(2018, 3, 30 - 2))
     defer ts2.Close()
+    tm1.addTMap(ts2.URL)
 
-    timemap, err := SpiderTimeMap(ts2.URL)
+    timemap, err := SpiderTimeMap(ts1.URL)
     if err != nil {
         t.Fatal(err)
     }
@@ -138,30 +129,20 @@ func TestSeriesOfTimeMaps(t *testing.T) {
 }
 
 func TestCycleOfTimeMaps(t *testing.T) {
-    mementos := []string{
-        "http://timegate.com/1/example.com",
-        "http://timegate.com/2/example.com",
-        "http://timegate.com/3/example.com",
-        "http://timegate.com/4/example.com",
-        "http://timegate.com/5/example.com",
-    }
-    tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
-    ts1 := tmServer(tm1)
+    mementos := mkUrls("http://timegate.com/%d/example.com", 5)
+    tm1, ts1 := mkServer("http://example.com",
+                         "http://timegate.com/example.com",
+                         mementos[:2],
+                         mkDate(2008, 4, 30))
     defer ts1.Close()
-    tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
-    tm2.addTMap(ts1.URL)
-    ts2 := tmServer(tm2)
+    tm2, ts2 := mkServer("http://example.com",
+                         "http://timegate.com/b/example.com",
+                         mementos[2:],
+                         mkDate(2008, 4, 30 - 2))
     defer ts2.Close()
-    for i := 0; i < 2; i++ {
-        tm1.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
-    }
-    for i := 2; i < 5; i++ {
-        tm2.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
-    }
+    tm2.addTMap(ts1.URL)
     tm1.addTMap(ts2.URL)
 
-    //  this will also prove out that we can modify an underlying tmap after
-    // calling `tmServer`
     timemap, err := SpiderTimeMap(ts1.URL)
     if err != nil {
         t.Fatal(err)
@@ -179,27 +160,19 @@ func TestCycleOfTimeMaps(t *testing.T) {
 }
 
 func TestOverlapTimeMaps(t *testing.T) {
-    mementos := []string{
-        "http://timegate.com/1/example.com",
-        "http://timegate.com/2/example.com",
-        "http://timegate.com/3/example.com",
-        "http://timegate.com/4/example.com",
-        "http://timegate.com/5/example.com",
-    }
-    tm1 := initTMap("http://example.com", "http://timegate.com/example.com")
-    ts1 := tmServer(tm1)
-    defer ts1.Close()
-    tm2 := initTMap("http://example.com", "http://timegate.com/b/example.com")
-    tm2.addTMap(ts1.URL)
-    ts2 := tmServer(tm2)
-    defer ts2.Close()
+    mementos := mkUrls("http://timegate.com/%d/example.com", 5)
     // note that mementos[2] is added twice
-    for i := 0; i < 3; i++ {
-        tm1.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
-    }
-    for i := 2; i < 5; i++ {
-        tm2.addMemento(mementos[i], mkDate(2008, 4, 30 - i))
-    }
+    _, ts1 := mkServer("http://example.com",
+                       "http://timegate.com/example.com",
+                       mementos[:3],
+                       mkDate(2008, 4, 30))
+    defer ts1.Close()
+    tm2, ts2 := mkServer("http://example.com",
+                         "http://timegate.com/b/example.com",
+                         mementos[2:],
+                         mkDate(2008, 4, 30 - 2))
+    defer ts2.Close()
+    tm2.addTMap(ts1.URL)
 
     timemap, err := SpiderTimeMap(ts2.URL)
     if err != nil {
@@ -269,4 +242,22 @@ func tmServer(t *tMap) *httptest.Server {
 
 func mkDate(year, month, day int) time.Time {
     return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+}
+
+func mkUrls(proto string, nUrls int) []string {
+    retval := make([]string, nUrls)
+    for i := 0; i < nUrls; i++ {
+        retval[i] = fmt.Sprintf(proto, i + 1)
+    }
+    return retval
+}
+
+func mkServer(original string, timegate string,
+              links []string, start time.Time) (*tMap, *httptest.Server) {
+    tmap := initTMap(original, timegate)
+    for i, mem := range links {
+        tmap.addMemento(mem, start.Add(time.Duration(-24 * i) * time.Hour))
+    }
+    ts := tmServer(tmap)
+    return tmap, ts
 }
