@@ -20,12 +20,19 @@ type Feed interface {
     // Return the doc with the placeholder replaced with `items`
     BytesWithItems(items []Item) []byte
     // Accessor for the `Item`s parsed from the doc.
+    // `Item`s are stored in the order listed in the doc. I guess this doesn't
+    // necessarily need to be chronological, but we should hope it's most
+    // recent first
     Items(start int, end int) []Item
     LenItems() int
     Item(idx int) Item
     //  Return the most recent `n` `item`s, that would be replayed before `t`.
     // Errors on no items. (TODO could probably just return a `nil` array)
     ShiftedAt(n int, t time.Time) ([]Item, error)
+
+    // Some private methods to make my life easier
+    appendItems(items []Item)
+    allItems() []Item
 }
 
 //  The method to shift a feed is the same whether RSS or Atom, so the work is
@@ -92,6 +99,14 @@ func (f *RssFeed) Item(idx int) Item {
 
 func (f *RssFeed) LenItems() int {
     return len(f.items)
+}
+
+func (f *RssFeed) allItems() []Item {
+    return f.items
+}
+
+func (f *RssFeed) appendItems(items []Item) {
+    f.items = append(f.items, items...)
 }
 
 // TODO error on already existing here?
@@ -174,6 +189,14 @@ func (a *AtomFeed) Item(idx int) Item {
 
 func (a *AtomFeed) LenItems() int {
     return len(a.items)
+}
+
+func (a *AtomFeed) allItems() []Item {
+    return a.items
+}
+
+func (a *AtomFeed) appendItems(items []Item) {
+    a.items = append(a.items, items...)
 }
 
 func (a *AtomFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {

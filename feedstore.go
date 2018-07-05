@@ -473,6 +473,16 @@ func (f *StoredFeed) LenItems() int {
     return f.idx.Count
 }
 
+func (f *StoredFeed) allItems() []Item {
+    return f.Items(0, f.LenItems() - 1)
+}
+
+func (f *StoredFeed) appendItems(items []Item) {
+    // I don't know that I want this to be available
+    panic("StoredFeed represents a read-only interface." +
+          " Append to the underlying store instead.")
+}
+
 func (f *StoredFeed) ShiftedAt(n int, t time.Time) ([]Item, error) {
     return univShiftedAt(n, t, f, f.ds)
 }
