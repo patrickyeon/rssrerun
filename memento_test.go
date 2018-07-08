@@ -225,7 +225,8 @@ func (t *tMap) toString() string {
     for _, mm := range(t.mementos) {
         links = strings.Join([]string{links,
             "<", mm.url, ">; rel=\"memento\";",
-            "datetime=\"", mm.dt.String(), "\",\n"}, "")
+            "datetime=\"", mm.dt.Format(RFC1123date),
+            "\",\n"}, "")
     }
     return strings.Join(append([]string{
         "<", t.original, ">; rel=\"original\",\n",

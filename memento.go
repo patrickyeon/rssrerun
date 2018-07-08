@@ -9,6 +9,7 @@ import (
     "regexp"
     "sort"
     "strings"
+    "time"
 )
 
 var linkSplitter = regexp.MustCompile("<([^>]*)>((.|\\n)*)")
@@ -19,6 +20,8 @@ type Memento struct {
     Url string
     Params map[string]string
 }
+
+var RFC1123date = "Mon, 02 Jan 2006 15:04:05 GMT"
 
 type memslice []Memento
 
@@ -43,10 +46,34 @@ func ParseMemento(s string) (Memento, error) {
             if kv == nil {
                 continue
             }
+            if kv[1] == "datetime" {
+                var err error
+                kv[2], err = canonDate(kv[2])
+                if err != nil {
+                    return nilMemento(), err
+                }
+            }
             paramMap[kv[1]] = kv[2]
         }
     }
     return Memento{res[1], paramMap}, nil
+}
+
+func canonDate(s string) (string, error) {
+    // try to parse a string date, return it as a proper date string
+    //  RFC1123 has a strict interpretation of what this should be, but I don't
+    // trust the world at large
+    formats := []string{RFC1123date,
+                        "Mon, 2 Jan 2006, 15:04:05 GMT"}
+    for _, f := range(formats) {
+        t, err := time.Parse(f, s)
+        if err == nil {
+            return t.Format(formats[0]), nil
+        }
+    }
+    return s, errors.New(strings.Join([]string{"Could not parse date ", s,
+                                               "It should be of format ",
+                                               formats[0]}, ""))
 }
 
 type TimeMap struct {
@@ -95,7 +122,9 @@ func inArray(needle string, haystack []string) bool {
 
 // be able to use the `sort` library
 func (mem memslice) Less(i, j int) bool {
-    return mem[i].Params["datetime"] > mem[j].Params["datetime"]
+    idate, _ := time.Parse(RFC1123date, mem[i].Params["datetime"])
+    jdate, _ := time.Parse(RFC1123date, mem[j].Params["datetime"])
+    return idate.After(jdate)
 }
 func (mem memslice) Swap(i, j int) {
     temp := mem[i]
