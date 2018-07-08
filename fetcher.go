@@ -4,21 +4,104 @@ import (
     "errors"
     "io/ioutil"
     "net/http"
+    "strconv"
+    "strings"
+    "time"
 )
 
+
 func bytesFromUrl(url string) ([]byte, error) {
-    resp, err := http.Get(url)
+    retval, _, err := bytesFromUrlWithDelay(url, 0)
+    return retval, err
+}
+
+
+func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
+    // ugggh
+    if strings.HasPrefix(url, "https://web.archive.org") {
+        a := strings.Split(url, "/http")
+        url = a[0] + "if_/http" + a[1]
+    }
+
+    for true {
+        time.Sleep(time.Duration(delay) * time.Second)
+        resp, err := http.Get(url)
+        if err != nil {
+            return nil, -1, err
+        }
+        if resp.StatusCode == 200 {
+            dat, err := ioutil.ReadAll(resp.Body)
+            if err != nil {
+                return nil, -1, err
+            }
+            return dat, delay, nil
+        } else if resp.StatusCode == 429 && delay < 130 {
+            // back off like a chump, but (arbitrarily) not more than 130 sec
+            if delay == 0 {
+                delay = 1
+            }
+            delay *= 2
+            continue
+        } else {
+            return nil, -1, errors.New(resp.Status)
+        }
+    }
+    // impossible to reach here, but whatever
+    return nil, -1, errors.New("impossible codepath executed")
+}
+
+
+func FeedFromSquareSpace(url string) (Feed, error) {
+    resp, delay, err := bytesFromUrlWithDelay(url, 31)
     if err != nil {
         return nil, err
     }
-    if resp.StatusCode != 200 {
-        return nil, errors.New(resp.Status)
-    }
-    dat, err := ioutil.ReadAll(resp.Body)
+    retfeed, err := NewFeed(resp, nil)
     if err != nil {
         return nil, err
     }
-    return dat, nil
+    for true {
+        offset, err := retfeed.Item(retfeed.LenItems() - 1).PubDate()
+        if err != nil {
+            return nil, err
+        }
+        offsetstr := strconv.FormatInt((offset.Unix() - 1) * 1000, 10)
+        nexturl := strings.Join([]string{url, "&offset=", offsetstr}, "")
+        resp, delay, err = bytesFromUrlWithDelay(nexturl, delay)
+        if err != nil {
+            return nil, err
+        }
+        feed, err := NewFeed(resp, nil)
+        if err != nil {
+            return nil, err
+        }
+        lastGuid, err := retfeed.Item(0).Guid()
+        if err != nil {
+            return nil, err
+        }
+        allItems := feed.allItems()
+        // get rid of that overlap
+        for i := 0; i < len(allItems); i++ {
+            item := allItems[i]
+            guid, err := item.Guid()
+            if err != nil {
+                return nil, err
+            }
+            if guid == lastGuid {
+                allItems = allItems[i + 1 : ]
+                break
+            }
+        }
+
+        //  we made sure to overlap the items when we made nexturl, so if
+        // there is only one left, we've seen it already
+        if len(allItems) == 0{
+            break
+        }
+
+        retfeed.appendItems(allItems)
+    }
+    return retfeed, nil
 }
 
 
