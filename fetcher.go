@@ -4,10 +4,62 @@ import (
     "errors"
     "io/ioutil"
     "net/http"
+    neturl "net/url"
     "strconv"
     "strings"
     "time"
+
+    "github.com/jbowtie/gokogiri"
 )
+
+type FeedFunc func(string) (Feed, error)
+
+func SelectFeedFetcher(url string) (FeedFunc, error) {
+    urlmap := map[string]FeedFunc {
+        // at least up to 285 episodes, libsyn just returns the whole history
+        ".libsyn.com" : FeedFromUrl,
+        ".libsynpro.com" : FeedFromUrl,
+        "npr.org" : FeedFromNPR,
+    }
+    genmap := map[string]FeedFunc {
+        "Site-Server v6." : FeedFromSquareSpace,
+        "Libsyn WebEngine" : FeedFromUrl,
+        "NPR API RSS Generator" : FeedFromNPR,
+    }
+
+    parsedUrl, err := neturl.Parse(url)
+    if err != nil {
+        return nil, err
+    }
+    hostname := parsedUrl.Hostname()
+    for stub, fn := range urlmap {
+        if strings.HasSuffix(hostname, stub) {
+            return fn, nil
+        }
+    }
+
+    resp, err := bytesFromUrl(url)
+    if err != nil {
+        return nil, err
+    }
+    doc, err := gokogiri.ParseXml(resp)
+    if err != nil {
+        return nil, err
+    }
+    gen, err := doc.Root().Search("channel/generator")
+    if err != nil {
+        return nil, err
+    }
+    if len(gen) > 0 {
+        generator := gen[0].Content()
+        for stub, fn := range genmap {
+            if strings.HasPrefix(generator, stub) {
+                return fn, nil
+            }
+        }
+    }
+    return FeedFromWayback, nil
+}
 
 
 func bytesFromUrl(url string) ([]byte, error) {
@@ -17,13 +69,14 @@ func bytesFromUrl(url string) ([]byte, error) {
 
 
 func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
-    // ugggh
+    // TODO: ugggh, this is totally not the place to do this.
     if strings.HasPrefix(url, "https://web.archive.org") {
         a := strings.Split(url, "/http")
         url = a[0] + "if_/http" + a[1]
     }
 
-    for true {
+    for delay < 130 {
+        // arbitrarily, not backing off more than 130 sec
         time.Sleep(time.Duration(delay) * time.Second)
         resp, err := http.Get(url)
         if err != nil {
@@ -35,8 +88,8 @@ func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
                 return nil, -1, err
             }
             return dat, delay, nil
-        } else if resp.StatusCode == 429 && delay < 130 {
-            // back off like a chump, but (arbitrarily) not more than 130 sec
+        } else if resp.StatusCode == 429 {
+            // back off like a chump
             if delay == 0 {
                 delay = 1
             }
@@ -46,8 +99,84 @@ func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
             return nil, -1, errors.New(resp.Status)
         }
     }
-    // impossible to reach here, but whatever
-    return nil, -1, errors.New("impossible codepath executed")
+    return nil, -1, errors.New("delay with backoff pushed beyond 130s. " + url)
+}
+
+
+func FeedFromUrl(url string) (Feed, error) {
+    resp, err := bytesFromUrl(url)
+    if err != nil {
+        return nil, err
+    }
+    return NewFeed(resp, nil)
+}
+
+
+func iterThroughFeed(url string, fNext func(Feed, string)(string, error)) (Feed, error) {
+    // TODO look through this again.
+    retFeed, err := FeedFromUrl(url)
+    if err != nil {
+        return nil, err
+    }
+    if retFeed.LenItems() == 0 {
+        return retFeed, nil
+    }
+    feed := retFeed
+    for true {
+        url, err := fNext(feed, url)
+        if err != nil {
+            return nil, err
+        }
+        moreFeed, err := FeedFromUrl(url)
+        if err != nil {
+            return nil, err
+        }
+        moreItems := moreFeed.allItems()
+        if len(moreItems) == 0 {
+            break
+        }
+        earliestGuid, err := retFeed.Item(0).Guid()
+        if err != nil {
+            return nil, err
+        }
+        for i := 0; i < len(moreItems); i++ {
+            guid, err := moreItems[i].Guid()
+            if err != nil {
+                return nil, err
+            }
+            if guid == earliestGuid {
+                if i == len(moreItems) - 1 {
+                    //  seems unlikely, but with my luck it's basically
+                    // guaranteed that we'll have some point that only returns
+                    // items we've already seen
+                    moreItems = nil
+                } else {
+                    moreItems = moreItems[i + 1 :]
+                }
+                break
+            }
+        }
+        if len(moreItems) == 0 {
+            break
+        }
+        retFeed.appendItems(moreItems)
+        feed = moreFeed
+    }
+    return retFeed, nil
+}
+
+
+func nextForNPR(f Feed, url string) (string, error) {
+    earliestDate, err := f.Item(0).PubDate()
+    if err != nil {
+        return "", err
+    }
+    // break up url, then return it with
+    return url + "&endDate=" + earliestDate.Format("2006-01-02"), nil
+}
+
+func FeedFromNPR(url string) (Feed, error) {
+    return iterThroughFeed(url, nextForNPR)
 }
 
 
@@ -104,6 +233,10 @@ func FeedFromSquareSpace(url string) (Feed, error) {
     return retfeed, nil
 }
 
+
+func FeedFromWayback(url string) (Feed, error) {
+    return FeedFromArchive("https://web.archive.org/web/timemap/link/*/" + url)
+}
 
 func FeedFromArchive(url string) (Feed, error) {
     tm, err := SpiderTimeMap(url)
