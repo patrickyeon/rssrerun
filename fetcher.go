@@ -20,6 +20,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         ".libsyn.com" : FeedFromUrl,
         ".libsynpro.com" : FeedFromUrl,
         "npr.org" : FeedFromNPR,
+        "feeds.soundcloud.com" : FeedSelfLinking,
     }
     genmap := map[string]FeedFunc {
         "Site-Server v6." : FeedFromSquarespace,
@@ -56,6 +57,22 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
             if strings.HasPrefix(generator, stub) {
                 return fn, nil
             }
+        }
+    }
+
+    // why do I need to do this part?
+    xp := doc.DocXPathCtx()
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        xp.RegisterNamespace(ns.Prefix, ns.Uri)
+    }
+    links, err := doc.Root().Search("channel/atom:link")
+    if err != nil {
+        return nil, err
+    }
+    for _, link := range links {
+        rel, found := link.Attributes()["rel"]
+        if found && rel.Value() == "next" {
+            return FeedSelfLinking, nil
         }
     }
     return FeedFromWayback, nil
@@ -120,7 +137,6 @@ func FeedFromUrl(url string) (Feed, error) {
 type nextFunc func(Feed, string) (string, error)
 
 func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
-    // TODO look through this again.
     retFeed, err := FeedFromUrl(url)
     if err != nil {
         return nil, err
@@ -201,6 +217,39 @@ func nextForSquarespace(f Feed, url string) (string, error) {
     return strings.Join([]string{url, "&offset=", offsetstr}, ""), nil
 }
 
+
+func FeedSelfLinking(url string) (Feed, error) {
+    return iterThroughFeed(url, nextSelfLink)
+}
+
+func nextSelfLink(f Feed, url string) (string, error) {
+    // for now, just use the channel/atom:link with rel=next
+    // why do I need to do this part?
+    doc, err := gokogiri.ParseXml(f.Wrapper())
+    if err != nil {
+        return "", err
+    }
+    xp := doc.DocXPathCtx()
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        xp.RegisterNamespace(ns.Prefix, ns.Uri)
+    }
+    links, err := doc.Root().Search("channel/atom:link")
+    if err != nil {
+        return "", err
+    }
+    for _, link := range links {
+        attr := link.Attributes()
+        rel, found := attr["rel"]
+        if found && rel.Value() == "next" {
+            if href, found := attr["href"]; found {
+                return href.Value(), nil
+            } else {
+                return "", errors.New("next link with no href")
+            }
+        }
+    }
+    return "", errors.New("could not find a link with rel=next")
+}
 
 func FeedFromWayback(url string) (Feed, error) {
     return FeedFromArchive("https://web.archive.org/web/timemap/link/*/" + url)
