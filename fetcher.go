@@ -28,7 +28,13 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         "NPR API RSS Generator" : FeedFromNPR,
     }
 
-    parsedUrl, err := neturl.Parse(url)
+    resp, err := http.Get(url)
+    if err != nil {
+        return nil, err
+    }
+
+    // needed to do one fetch first, to handle redirects
+    parsedUrl, err := neturl.Parse(resp.Request.URL.String())
     if err != nil {
         return nil, err
     }
@@ -39,11 +45,15 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         }
     }
 
-    resp, err := bytesFromUrl(url)
+    if resp.StatusCode >= 400 {
+        return nil, errors.New(resp.Status)
+    }
+    dat, err := ioutil.ReadAll(resp.Body)
     if err != nil {
         return nil, err
     }
-    doc, err := gokogiri.ParseXml(resp)
+
+    doc, err := gokogiri.ParseXml(dat)
     if err != nil {
         return nil, err
     }
@@ -65,14 +75,19 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     for _, ns := range doc.Root().DeclaredNamespaces() {
         xp.RegisterNamespace(ns.Prefix, ns.Uri)
     }
-    links, err := doc.Root().Search("channel/atom:link")
-    if err != nil {
-        return nil, err
-    }
-    for _, link := range links {
-        rel, found := link.Attributes()["rel"]
-        if found && rel.Value() == "next" {
-            return FeedSelfLinking, nil
+
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        if ns.Uri == "http://www.w3.org/2005/Atom" && len(ns.Prefix) > 0 {
+            links, err := doc.Root().Search("channel/" + ns.Prefix + ":link")
+            if err != nil {
+                return nil, err
+            }
+            for _, link := range links {
+                rel, found := link.Attributes()["rel"]
+                if found && rel.Value() == "next" {
+                    return FeedSelfLinking, nil
+                }
+            }
         }
     }
     return FeedFromWayback, nil
@@ -104,7 +119,7 @@ func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
         if err != nil {
             return nil, -1, err
         }
-        if resp.StatusCode == 200 {
+        if resp.StatusCode < 400 {
             dat, err := ioutil.ReadAll(resp.Body)
             if err != nil {
                 return nil, -1, err
