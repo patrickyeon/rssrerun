@@ -10,21 +10,21 @@ import (
     "time"
 
     "github.com/jbowtie/gokogiri"
+    "github.com/jbowtie/gokogiri/xml"
 )
 
 type FeedFunc func(string) (Feed, error)
 
 func SelectFeedFetcher(url string) (FeedFunc, error) {
     urlmap := map[string]FeedFunc {
-        // at least up to 285 episodes, libsyn just returns the whole history
-        ".libsyn.com" : FeedFromUrl,
-        ".libsynpro.com" : FeedFromUrl,
+        ".libsyn.com" : FeedFromLibsyn,
+        ".libsynpro.com" : FeedFromLibsyn,
         "npr.org" : FeedFromNPR,
         "feeds.soundcloud.com" : FeedSelfLinking,
     }
     genmap := map[string]FeedFunc {
         "Site-Server v6." : FeedFromSquarespace,
-        "Libsyn WebEngine" : FeedFromUrl,
+        "Libsyn WebEngine" : FeedFromLibsyn,
         "NPR API RSS Generator" : FeedFromNPR,
     }
 
@@ -34,13 +34,8 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     }
 
     // needed to do one fetch first, to handle redirects
-    parsedUrl, err := neturl.Parse(resp.Request.URL.String())
-    if err != nil {
-        return nil, err
-    }
-    hostname := parsedUrl.Hostname()
     for stub, fn := range urlmap {
-        if strings.HasSuffix(hostname, stub) {
+        if strings.HasSuffix(resp.Request.URL.Hostname(), stub) {
             return fn, nil
         }
     }
@@ -90,7 +85,46 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
             }
         }
     }
+
+    _, err = getLibsynHostname(doc)
+    if err == nil {
+        // we found one, but don't actually care what it is right now
+        return FeedFromLibsyn, nil
+    }
+
     return FeedFromWayback, nil
+}
+
+
+func getLibsynHostname(doc xml.Document) (string, error) {
+    // aggressive libsyn searching
+    enclosures, err := doc.Root().Search("channel/item/enclosure")
+    if err != nil {
+        return "", err
+    }
+    for _, tag := range enclosures {
+        attr := tag.Attributes()
+        url, found := attr["url"]
+        if found {
+            parsedUrl, err := neturl.Parse(url.Value())
+            if err != nil {
+                return "", err
+            }
+            if parsedUrl.Hostname() == "traffic.libsyn.com" {
+                stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
+                fullurl := "https://" + stub + "libsyn.com"
+                resp, err := http.Get(fullurl)
+                if err != nil {
+                    return "", err
+                }
+                if resp.StatusCode >= 400 {
+                    return "", errors.New(resp.Status)
+                }
+                return "http://" + stub + ".libsyn.com", nil
+            }
+        }
+    }
+    return "", errors.New("Could not find a Libsyn hostname")
 }
 
 
@@ -148,6 +182,59 @@ func FeedFromUrl(url string) (Feed, error) {
     return NewFeed(resp, nil)
 }
 
+
+func FeedFromLibsyn(url string) (Feed, error) {
+    parsedUrl, err := neturl.Parse(url)
+    if err != nil {
+        return nil, err
+    }
+    hostname := parsedUrl.Hostname()
+    if (strings.HasSuffix(hostname, ".libsyn.com") ||
+        strings.HasSuffix(hostname, ".libsynpro.com")) {
+        return iterThroughFeed("http://" + hostname + "/rss/page/1/size/300",
+                                nextForLibsyn)
+    }
+    dat, err := bytesFromUrl(url)
+    if err != nil {
+        return nil, err
+    }
+    doc, err := gokogiri.ParseXml(dat)
+    if err != nil {
+        return nil, err
+    }
+    foundurl, err := getLibsynHostname(doc)
+    if err != nil {
+        return nil, err
+    }
+    return iterThroughFeed(foundurl + "/rss/page/1/size/300", nextForLibsyn)
+}
+
+
+func nextForLibsyn(f Feed, url string) (string, error) {
+    // if url is simply /rss, make it /rss/page/1/size/300
+    // otherwise, increase page number
+    _ = f
+    parsedUrl, err := neturl.Parse(url)
+    if err != nil {
+        return "", err
+    }
+    path := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")
+    for i, s := range path {
+        if i == len(path) - 1 {
+            break
+        }
+        if s == "page" {
+            ind, err := strconv.ParseInt(path[i + 1], 10, 64)
+            if err != nil {
+                return "", err
+            }
+            path[i + 1] = strconv.Itoa(int(ind) + 1)
+            newPath := "/" + strings.Join(path, "/")
+            return "http://" + parsedUrl.Hostname() + newPath, nil
+        }
+    }
+    return "http://" + parsedUrl.Hostname() + "/rss/page/1/size/300", nil
+}
 
 type nextFunc func(Feed, string) (string, error)
 
