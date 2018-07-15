@@ -22,7 +22,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         "npr.org" : FeedFromNPR,
     }
     genmap := map[string]FeedFunc {
-        "Site-Server v6." : FeedFromSquareSpace,
+        "Site-Server v6." : FeedFromSquarespace,
         "Libsyn WebEngine" : FeedFromUrl,
         "NPR API RSS Generator" : FeedFromNPR,
     }
@@ -62,8 +62,13 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
 }
 
 
+var presetDelays = make(map[string]int64)
+
+
 func bytesFromUrl(url string) ([]byte, error) {
-    retval, _, err := bytesFromUrlWithDelay(url, 0)
+    // really hacky way for a function to force this
+    delay := presetDelays[url]
+    retval, _, err := bytesFromUrlWithDelay(url, delay)
     return retval, err
 }
 
@@ -112,7 +117,9 @@ func FeedFromUrl(url string) (Feed, error) {
 }
 
 
-func iterThroughFeed(url string, fNext func(Feed, string)(string, error)) (Feed, error) {
+type nextFunc func(Feed, string) (string, error)
+
+func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
     // TODO look through this again.
     retFeed, err := FeedFromUrl(url)
     if err != nil {
@@ -123,11 +130,11 @@ func iterThroughFeed(url string, fNext func(Feed, string)(string, error)) (Feed,
     }
     feed := retFeed
     for true {
-        url, err := fNext(feed, url)
+        nexturl, err := fNext(feed, url)
         if err != nil {
             return nil, err
         }
-        moreFeed, err := FeedFromUrl(url)
+        moreFeed, err := FeedFromUrl(nexturl)
         if err != nil {
             return nil, err
         }
@@ -135,7 +142,7 @@ func iterThroughFeed(url string, fNext func(Feed, string)(string, error)) (Feed,
         if len(moreItems) == 0 {
             break
         }
-        earliestGuid, err := retFeed.Item(0).Guid()
+        earliestGuid, err := retFeed.Item(retFeed.LenItems() - 1).Guid()
         if err != nil {
             return nil, err
         }
@@ -167,7 +174,7 @@ func iterThroughFeed(url string, fNext func(Feed, string)(string, error)) (Feed,
 
 
 func nextForNPR(f Feed, url string) (string, error) {
-    earliestDate, err := f.Item(0).PubDate()
+    earliestDate, err := f.Item(f.LenItems() - 1).PubDate()
     if err != nil {
         return "", err
     }
@@ -180,57 +187,18 @@ func FeedFromNPR(url string) (Feed, error) {
 }
 
 
-func FeedFromSquareSpace(url string) (Feed, error) {
-    resp, delay, err := bytesFromUrlWithDelay(url, 31)
-    if err != nil {
-        return nil, err
-    }
-    retfeed, err := NewFeed(resp, nil)
-    if err != nil {
-        return nil, err
-    }
-    for true {
-        offset, err := retfeed.Item(retfeed.LenItems() - 1).PubDate()
-        if err != nil {
-            return nil, err
-        }
-        offsetstr := strconv.FormatInt((offset.Unix() - 1) * 1000, 10)
-        nexturl := strings.Join([]string{url, "&offset=", offsetstr}, "")
-        resp, delay, err = bytesFromUrlWithDelay(nexturl, delay)
-        if err != nil {
-            return nil, err
-        }
-        feed, err := NewFeed(resp, nil)
-        if err != nil {
-            return nil, err
-        }
-        lastGuid, err := retfeed.Item(0).Guid()
-        if err != nil {
-            return nil, err
-        }
-        allItems := feed.allItems()
-        // get rid of that overlap
-        for i := 0; i < len(allItems); i++ {
-            item := allItems[i]
-            guid, err := item.Guid()
-            if err != nil {
-                return nil, err
-            }
-            if guid == lastGuid {
-                allItems = allItems[i + 1 : ]
-                break
-            }
-        }
+func FeedFromSquarespace(url string) (Feed, error) {
+    presetDelays[url] = 31
+    return iterThroughFeed(url, nextForSquarespace)
+}
 
-        //  we made sure to overlap the items when we made nexturl, so if
-        // there is only one left, we've seen it already
-        if len(allItems) == 0{
-            break
-        }
-
-        retfeed.appendItems(allItems)
+func nextForSquarespace(f Feed, url string) (string, error) {
+    offset, err := f.Item(f.LenItems() - 1).PubDate()
+    if err != nil {
+        return "", err
     }
-    return retfeed, nil
+    offsetstr := strconv.FormatInt((offset.Unix() - 1) * 1000, 10)
+    return strings.Join([]string{url, "&offset=", offsetstr}, ""), nil
 }
 
 
