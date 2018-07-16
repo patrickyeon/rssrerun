@@ -13,41 +13,47 @@ import (
     "github.com/jbowtie/gokogiri/xml"
 )
 
+
 type FeedFunc func(string) (Feed, error)
 
+//  Make a best-effort attempt to determine if one of the feed fetching
+// functions we've developed is likely to work to read fetch and reconstruct the
+// feed at the given URL.
 func SelectFeedFetcher(url string) (FeedFunc, error) {
+    // sometimes it's pretty promising based on the host
     urlmap := map[string]FeedFunc {
         ".libsyn.com" : FeedFromLibsyn,
         ".libsynpro.com" : FeedFromLibsyn,
         "npr.org" : FeedFromNPR,
         "feeds.soundcloud.com" : FeedSelfLinking,
     }
+    // the `channel/generator` can be a pretty good hint too
     genmap := map[string]FeedFunc {
         "Site-Server v6." : FeedFromSquarespace,
         "Libsyn WebEngine" : FeedFromLibsyn,
         "NPR API RSS Generator" : FeedFromNPR,
     }
 
+    //  try actually fetching, this will get us through redirects to the actual
+    // url, also an early bail on eg. 404's
     resp, err := http.Get(url)
     if err != nil {
         return nil, err
     }
-
-    // needed to do one fetch first, to handle redirects
+    if resp.StatusCode >= 400 {
+        return nil, errors.New(resp.Status)
+    }
     for stub, fn := range urlmap {
         if strings.HasSuffix(resp.Request.URL.Hostname(), stub) {
             return fn, nil
         }
     }
 
-    if resp.StatusCode >= 400 {
-        return nil, errors.New(resp.Status)
-    }
+    // parse the xml document and see if we get `channel/generator` hints
     dat, err := ioutil.ReadAll(resp.Body)
     if err != nil {
         return nil, err
     }
-
     doc, err := gokogiri.ParseXml(dat)
     if err != nil {
         return nil, err
@@ -65,12 +71,16 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         }
     }
 
-    // why do I need to do this part?
+    //  check for a `channel/atom:link` with `rel=next` that would tell us how
+    // to paginate through the feed.
+    // TODO: I wonder if there's ever a bare `channel/link` we should look for
+    // TODO: I think I could call `nextSelfLink` and check for err
+    //  I don't know why we need to add all of the namespaces, but it seems
+    // we do. So here we do it.
     xp := doc.DocXPathCtx()
     for _, ns := range doc.Root().DeclaredNamespaces() {
         xp.RegisterNamespace(ns.Prefix, ns.Uri)
     }
-
     for _, ns := range doc.Root().DeclaredNamespaces() {
         if ns.Uri == "http://www.w3.org/2005/Atom" && len(ns.Prefix) > 0 {
             links, err := doc.Root().Search("channel/" + ns.Prefix + ":link")
@@ -86,18 +96,28 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
         }
     }
 
+    //  Some podcasts are backed by Libsyn in a way that we could fetch the feed
+    // from their service, from which we've already worked out how to rebuild an
+    // entire history.
     _, err = getLibsynHostname(doc)
     if err == nil {
         // we found one, but don't actually care what it is right now
         return FeedFromLibsyn, nil
     }
 
-    return FeedFromWayback, nil
+    //  As a last ditch, there's a chance the entire history exists in the
+    // currently published feed. We could also try FeedFromWayback to rebuild it
+    // using the Internet Archive, but coverage is pretty spotty.
+    return FeedFromUrl, nil
 }
 
 
 func getLibsynHostname(doc xml.Document) (string, error) {
-    // aggressive libsyn searching
+    //  Aggressive searching for a Libsyn-backed feed. It looks like sometimes
+    // people are using Libsyn to serve the audio files (from eg.
+    // `traffic.libsyn.com/podcastname/`) when they could serve the entire feed
+    // out of their account (in this example, `podcastname.libsyn.com/rss`).
+    // This isn't a constant though, sometimes that doesn't work.
     enclosures, err := doc.Root().Search("channel/item/enclosure")
     if err != nil {
         return "", err
@@ -112,15 +132,15 @@ func getLibsynHostname(doc xml.Document) (string, error) {
             }
             if parsedUrl.Hostname() == "traffic.libsyn.com" {
                 stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
-                fullurl := "https://" + stub + "libsyn.com"
-                resp, err := http.Get(fullurl)
+                hostname := "https://" + stub + ".libsyn.com"
+                resp, err := http.Get(hostname)
                 if err != nil {
                     return "", err
                 }
                 if resp.StatusCode >= 400 {
                     return "", errors.New(resp.Status)
                 }
-                return "http://" + stub + ".libsyn.com", nil
+                return hostname, nil
             }
         }
     }
@@ -128,18 +148,18 @@ func getLibsynHostname(doc xml.Document) (string, error) {
 }
 
 
-var presetDelays = make(map[string]int64)
-
+// really hacky way for a function to force a delay
+var presetBackoffs = make(map[string]int64)
 
 func bytesFromUrl(url string) ([]byte, error) {
-    // really hacky way for a function to force this
-    delay := presetDelays[url]
-    retval, _, err := bytesFromUrlWithDelay(url, delay)
+    backoff := presetDelays[url]
+    retval, _, err := bytesFromUrlWithBackoff(url, backoff)
     return retval, err
 }
 
 
-func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
+func bytesFromUrlWithBackoff(url string, delay int64) ([]byte, int64, error) {
+    // Fetch the url, backing off by delay if we get an HTTP 429
     // TODO: ugggh, this is totally not the place to do this.
     if strings.HasPrefix(url, "https://web.archive.org") {
         a := strings.Split(url, "/http")
@@ -148,7 +168,6 @@ func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
 
     for delay < 130 {
         // arbitrarily, not backing off more than 130 sec
-        time.Sleep(time.Duration(delay) * time.Second)
         resp, err := http.Get(url)
         if err != nil {
             return nil, -1, err
@@ -161,9 +180,10 @@ func bytesFromUrlWithDelay(url string, delay int64) ([]byte, int64, error) {
             return dat, delay, nil
         } else if resp.StatusCode == 429 {
             // back off like a chump
-            if delay == 0 {
+            if delay < 1 {
                 delay = 1
             }
+            time.Sleep(time.Duration(delay) * time.Second)
             delay *= 2
             continue
         } else {
@@ -184,6 +204,7 @@ func FeedFromUrl(url string) (Feed, error) {
 
 
 func FeedFromLibsyn(url string) (Feed, error) {
+    // see if we've been passed an easy case
     parsedUrl, err := neturl.Parse(url)
     if err != nil {
         return nil, err
@@ -194,6 +215,8 @@ func FeedFromLibsyn(url string) (Feed, error) {
         return iterThroughFeed("http://" + hostname + "/rss/page/1/size/300",
                                 nextForLibsyn)
     }
+
+    // oh, we'll try to dig one up then
     dat, err := bytesFromUrl(url)
     if err != nil {
         return nil, err
@@ -202,11 +225,11 @@ func FeedFromLibsyn(url string) (Feed, error) {
     if err != nil {
         return nil, err
     }
-    foundurl, err := getLibsynHostname(doc)
+    foundHost, err := getLibsynHostname(doc)
     if err != nil {
         return nil, err
     }
-    return iterThroughFeed(foundurl + "/rss/page/1/size/300", nextForLibsyn)
+    return iterThroughFeed(foundHost + "/rss/page/1/size/300", nextForLibsyn)
 }
 
 
@@ -236,9 +259,11 @@ func nextForLibsyn(f Feed, url string) (string, error) {
     return "http://" + parsedUrl.Hostname() + "/rss/page/1/size/300", nil
 }
 
+
 type nextFunc func(Feed, string) (string, error)
 
 func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
+    // Given a url and a function to paginate, create and return the full feed
     retFeed, err := FeedFromUrl(url)
     if err != nil {
         return nil, err
@@ -248,6 +273,8 @@ func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
     }
     feed := retFeed
     for true {
+        // FIXME: figure out if fNext should take the original url, or the most
+        //        recently used one. I suspect the latter.
         nexturl, err := fNext(feed, url)
         if err != nil {
             return nil, err
@@ -258,12 +285,14 @@ func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
         }
         moreItems := moreFeed.allItems()
         if len(moreItems) == 0 {
+            // I guess we've got everything
             break
         }
         earliestGuid, err := retFeed.Item(retFeed.LenItems() - 1).Guid()
         if err != nil {
             return nil, err
         }
+        // get rid of any overlap between what we already have and the next page
         for i := 0; i < len(moreItems); i++ {
             guid, err := moreItems[i].Guid()
             if err != nil {
@@ -291,6 +320,10 @@ func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
 }
 
 
+func FeedFromNPR(url string) (Feed, error) {
+    return iterThroughFeed(url, nextForNPR)
+}
+
 func nextForNPR(f Feed, url string) (string, error) {
     earliestDate, err := f.Item(f.LenItems() - 1).PubDate()
     if err != nil {
@@ -298,10 +331,6 @@ func nextForNPR(f Feed, url string) (string, error) {
     }
     // break up url, then return it with
     return url + "&endDate=" + earliestDate.Format("2006-01-02"), nil
-}
-
-func FeedFromNPR(url string) (Feed, error) {
-    return iterThroughFeed(url, nextForNPR)
 }
 
 
@@ -315,6 +344,7 @@ func nextForSquarespace(f Feed, url string) (string, error) {
     if err != nil {
         return "", err
     }
+    // force some overlap, just in case
     offsetstr := strconv.FormatInt((offset.Unix() - 1) * 1000, 10)
     return strings.Join([]string{url, "&offset=", offsetstr}, ""), nil
 }
@@ -326,7 +356,6 @@ func FeedSelfLinking(url string) (Feed, error) {
 
 func nextSelfLink(f Feed, url string) (string, error) {
     // for now, just use the channel/atom:link with rel=next
-    // why do I need to do this part?
     doc, err := gokogiri.ParseXml(f.Wrapper())
     if err != nil {
         return "", err
@@ -352,6 +381,7 @@ func nextSelfLink(f Feed, url string) (string, error) {
     }
     return "", errors.New("could not find a link with rel=next")
 }
+
 
 func FeedFromWayback(url string) (Feed, error) {
     return FeedFromArchive("https://web.archive.org/web/timemap/link/*/" + url)
