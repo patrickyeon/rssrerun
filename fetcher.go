@@ -73,26 +73,12 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
 
     //  check for a `channel/atom:link` with `rel=next` that would tell us how
     // to paginate through the feed.
-    // TODO: I wonder if there's ever a bare `channel/link` we should look for
-    // TODO: I think I could call `nextSelfLink` and check for err
-    //  I don't know why we need to add all of the namespaces, but it seems
-    // we do. So here we do it.
-    xp := doc.DocXPathCtx()
-    for _, ns := range doc.Root().DeclaredNamespaces() {
-        xp.RegisterNamespace(ns.Prefix, ns.Uri)
-    }
-    for _, ns := range doc.Root().DeclaredNamespaces() {
-        if ns.Uri == "http://www.w3.org/2005/Atom" && len(ns.Prefix) > 0 {
-            links, err := doc.Root().Search("channel/" + ns.Prefix + ":link")
-            if err != nil {
-                return nil, err
-            }
-            for _, link := range links {
-                rel, found := link.Attributes()["rel"]
-                if found && rel.Value() == "next" {
-                    return FeedSelfLinking, nil
-                }
-            }
+    feed, err := NewFeed(dat, nil)
+    if err == nil {
+        _, err = nextSelfLink(feed, "")
+        if err == nil {
+            // don't actually care what the url was, only that it was found
+            return FeedSelfLinking, nil
         }
     }
 
@@ -152,7 +138,7 @@ func getLibsynHostname(doc xml.Document) (string, error) {
 var presetBackoffs = make(map[string]int64)
 
 func bytesFromUrl(url string) ([]byte, error) {
-    backoff := presetDelays[url]
+    backoff := presetBackoffs[url]
     retval, _, err := bytesFromUrlWithBackoff(url, backoff)
     return retval, err
 }
@@ -335,7 +321,7 @@ func nextForNPR(f Feed, url string) (string, error) {
 
 
 func FeedFromSquarespace(url string) (Feed, error) {
-    presetDelays[url] = 31
+    presetBackoffs[url] = 31
     return iterThroughFeed(url, nextForSquarespace)
 }
 
@@ -355,31 +341,43 @@ func FeedSelfLinking(url string) (Feed, error) {
 }
 
 func nextSelfLink(f Feed, url string) (string, error) {
-    // for now, just use the channel/atom:link with rel=next
+    // look for a channel/atom:link with rel=next
+    // (also, try for bare channel/link if that fails)
     doc, err := gokogiri.ParseXml(f.Wrapper())
     if err != nil {
         return "", err
     }
+    //  I don't know why we need to add all of the namespaces, but it seems
+    // we do. So here we do it.
     xp := doc.DocXPathCtx()
     for _, ns := range doc.Root().DeclaredNamespaces() {
         xp.RegisterNamespace(ns.Prefix, ns.Uri)
     }
-    links, err := doc.Root().Search("channel/atom:link")
-    if err != nil {
-        return "", err
+    searches := []string{}
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        if ns.Uri == "http://www.w3.org/2005/Atom" && len(ns.Prefix) > 0 {
+            searches = append(searches, "channel/" + ns.Prefix + ":link")
+        }
     }
-    for _, link := range links {
-        attr := link.Attributes()
-        rel, found := attr["rel"]
-        if found && rel.Value() == "next" {
-            if href, found := attr["href"]; found {
-                return href.Value(), nil
-            } else {
-                return "", errors.New("next link with no href")
+    searches = append(searches, "channel/link")
+    for _, search := range searches {
+        links, err := doc.Root().Search(search)
+        if err != nil {
+            continue
+        }
+        for _, link := range links {
+            attr := link.Attributes()
+            rel, found := attr["rel"]
+            if found && rel.Value() == "next" {
+                if href, found := attr["href"]; found {
+                    return href.Value(), nil
+                } else {
+                    continue
+                }
             }
         }
     }
-    return "", errors.New("could not find a link with rel=next")
+    return "", errors.New("could not find a link with rel=next and href")
 }
 
 
