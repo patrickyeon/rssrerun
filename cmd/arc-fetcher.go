@@ -17,6 +17,7 @@ import (
 var Url string
 var UrlFile string
 var ArchiveToo bool
+var StoreDir string
 var LogFile string
 var LogVerbose bool
 var LogQuiet bool
@@ -26,6 +27,7 @@ func init() {
     flag.BoolVar(&ArchiveToo, "from-archive", false,
                  "if no sourcetype detected, try to rebuild from archive.org")
     flag.StringVar(&UrlFile, "file", "", "file with urls to fetch, one per line")
+    flag.StringVar(&StoreDir, "store", "", "directory of the feedstore")
     flag.BoolVar(&LogVerbose, "v", false, "Report info, warn, errors")
     flag.BoolVar(&LogQuiet, "q", false, "Only report errors")
     flag.StringVar(&LogFile, "logfile", "", "File to append logs into")
@@ -33,7 +35,7 @@ func init() {
 
 func main() {
     flag.Parse()
-    if Url == "" && UrlFile == "" {
+    if StoreDir == "" || (Url == "" && UrlFile == "") {
         flag.PrintDefaults()
         return
     }
@@ -60,6 +62,14 @@ func main() {
         log.AddHook(lfshook.NewHook(logfd, &log.JSONFormatter{}))
     }
 
+    if StoreDir[len(StoreDir) - 1] != os.PathSeparator {
+        StoreDir += string(os.PathSeparator)
+    }
+    store := rssrerun.NewJSONStore(StoreDir)
+    log.WithFields(log.Fields{
+        "dir": StoreDir,
+    }).Info("starting run")
+
     var urls []string
     var err error
     if UrlFile != "" {
@@ -73,6 +83,12 @@ func main() {
     }
 
     for _, url := range(urls) {
+        if store.NumItems(url) > 0 {
+            log.WithFields(log.Fields{
+                "url": url,
+            }).Warn("URL already initialized. Skipping.")
+            continue
+        }
         fn, err := rssrerun.SelectFeedFetcher(url)
         if err != nil {
             log.WithFields(log.Fields{
@@ -114,6 +130,27 @@ func main() {
                 "oldest": titleOrGuid(feed.Item(nItems - 1)),
                 "recent": titleOrGuid(feed.Item(0)),
             }).Info("Feed rebuilt")
+            //  we need to flip the ordering of the items, so that they are
+            // stored oldest-first
+            // TODO really? this isn't handled?
+            items := make([]rssrerun.Item, nItems)
+            for i := 0; i < nItems; i++ {
+                items[nItems - i - 1] = feed.Item(i)
+            }
+            store.CreateIndex(url)
+            err = store.Update(url, items)
+            if err != nil {
+                log.WithFields(log.Fields{
+                    "url": url,
+                    "num items": nItems,
+                }).Error("Store update failed.")
+                continue
+            }
+            store.SetInfo(url, "wrapper", string(feed.Wrapper()))
+            log.WithFields(log.Fields{
+                "url": url,
+                "num items": nItems,
+            }).Info("feed stored")
         }
     }
 }

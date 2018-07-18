@@ -104,6 +104,8 @@ func getLibsynHostname(doc xml.Document) (string, error) {
     // `traffic.libsyn.com/podcastname/`) when they could serve the entire feed
     // out of their account (in this example, `podcastname.libsyn.com/rss`).
     // This isn't a constant though, sometimes that doesn't work.
+    // XXX: this is risky, I've seen some cases where there exists a feed, but
+    //      it's not full feed.
     enclosures, err := doc.Root().Search("channel/item/enclosure")
     if err != nil {
         return "", err
@@ -119,7 +121,7 @@ func getLibsynHostname(doc xml.Document) (string, error) {
             if parsedUrl.Hostname() == "traffic.libsyn.com" {
                 stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
                 hostname := "https://" + stub + ".libsyn.com"
-                resp, err := http.Get(hostname)
+                resp, err := http.Get(hostname + "/rss")
                 if err != nil {
                     return "", err
                 }
