@@ -13,8 +13,9 @@ import (
     "github.com/jbowtie/gokogiri/xml"
 )
 
-
 type FeedFunc func(string) (Feed, error)
+
+var FetcherDetectFailed = errors.New("Failed to guess fetcher. Try FeedFromUrl?")
 
 //  Make a best-effort attempt to determine if one of the feed fetching
 // functions we've developed is likely to work to read fetch and reconstruct the
@@ -94,7 +95,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     //  As a last ditch, there's a chance the entire history exists in the
     // currently published feed. We could also try FeedFromWayback to rebuild it
     // using the Internet Archive, but coverage is pretty spotty.
-    return FeedFromUrl, nil
+    return nil, FetcherDetectFailed
 }
 
 

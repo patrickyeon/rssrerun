@@ -3,6 +3,7 @@ import (
     "fmt"
     "html/template"
     "net/http"
+    neturl "net/url"
     "strconv"
     "strings"
     "time"
@@ -11,11 +12,14 @@ import (
 )
 
 var templates = template.Must(template.ParseFiles("public/about.html",
+                                                  "public/build.html",
                                                   "public/preview.html"))
 var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
                               time.Wednesday, time.Thursday, time.Friday,
                               time.Saturday}
 var store = rssrerun.NewJSONStore("data/stores/podcasts/")
+
+var CautionNoFetcher = "No auto-builder known. Just using live feed."
 
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) error {
     err := templates.ExecuteTemplate(w, name, data)
@@ -43,6 +47,8 @@ func titleish(item rssrerun.Item) string {
     }
     if len(titletxt) > 150 {
         titletxt = titletxt[0:147] + "..."
+    } else if len(titletxt) == 0 {
+        titletxt = "(no title found)"
     }
     return titletxt
 }
@@ -78,7 +84,7 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
     }
     url := req["podcast"][0]
     if store.NumItems(url) <= 0 {
-        errHandler(w, url + " is not in the store")
+        errHandler(w, "We don't have that feed yet. Try another?")
         return
     }
     items, err := store.Get(url, 0, nItems)
@@ -110,11 +116,53 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
         Title, Url, Weekdays, FeedLink string
         Items []lnk
     }
-    link := "/feed?url=" + url + "&start=" + startdate.Format("20060102")
+    link := ("/feed?url=" + neturl.PathEscape(url) +
+             "&start=" + startdate.Format("20060102"))
     link += "&sched=" + intsched
     dat := prevDat{"Your Podcast", url, strings.Join(txtsched, "/"), link, ret}
     templateOrErr(w, "preview.html", dat)
 }
+
+func buildHandler(w http.ResponseWriter, r *http.Request) {
+    req := r.URL.Query()
+    if req["url"] == nil {
+        errHandler(w, "need a URL to try to build a feed")
+        return
+    }
+    url := req["url"][0]
+    if store.NumItems(url) > 0 {
+        // tell them it already exists, encourage them to sign up
+        errHandler(w, "TODO: feed exists. give it to user")
+        return
+    }
+    caution := ""
+    fn, err := rssrerun.SelectFeedFetcher(url)
+    if err == rssrerun.FetcherDetectFailed {
+        fn = rssrerun.FeedFromUrl
+        caution = CautionNoFetcher
+    } else if err != nil {
+        errHandler(w, err.Error())
+        return
+    }
+    feed, err := fn(url)
+    if err != nil {
+        errHandler(w, err.Error())
+        return
+    }
+    nItems := feed.LenItems()
+    if nItems < 2 {
+        errHandler(w, "that feed, as rebuilt, looks broken.")
+        return
+    }
+    type buildDat struct {
+        ItemCount int
+        First, Last, Url, Caution string
+    }
+    dat := buildDat{nItems, titleish(feed.Item(nItems - 1)),
+                    titleish(feed.Item(0)), url, caution}
+    templateOrErr(w, "build.html", dat)
+}
+
 
 func feedHandler(w http.ResponseWriter, r *http.Request) {
     req := r.URL.Query()
@@ -200,6 +248,7 @@ func errHandler(w http.ResponseWriter, msg string) {
 func main() {
     http.HandleFunc("/", homeHandler)
     http.HandleFunc("/preview", previewHandler)
+    http.HandleFunc("/build", buildHandler)
     http.HandleFunc("/feed", feedHandler)
     http.ListenAndServe(":8007", nil)
 }

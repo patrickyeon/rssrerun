@@ -16,7 +16,7 @@ import (
 
 var Url string
 var UrlFile string
-var ArchiveToo bool
+var LiveFallback bool
 var StoreDir string
 var LogFile string
 var LogVerbose bool
@@ -24,8 +24,8 @@ var LogQuiet bool
 
 func init() {
     flag.StringVar(&Url, "url", "", "target url")
-    flag.BoolVar(&ArchiveToo, "from-archive", false,
-                 "if no sourcetype detected, try to rebuild from archive.org")
+    flag.BoolVar(&LiveFallback, "fallback", false,
+                 "if no fetcher detected, just use current feed")
     flag.StringVar(&UrlFile, "file", "", "file with urls to fetch, one per line")
     flag.StringVar(&StoreDir, "store", "", "directory of the feedstore")
     flag.BoolVar(&LogVerbose, "v", false, "Report info, warn, errors")
@@ -91,11 +91,15 @@ func main() {
         }
         fn, err := rssrerun.SelectFeedFetcher(url)
         if err != nil {
-            log.WithFields(log.Fields{
-                "url": url,
-                "error": err,
-            }).Warn("Error detecting feed fetcher")
-            continue
+            if err == rssrerun.FetcherDetectFailed && LiveFallback {
+                fn = rssrerun.FeedFromUrl
+            } else {
+                log.WithFields(log.Fields{
+                    "url": url,
+                    "error": err,
+                }).Warn("Error detecting feed fetcher")
+                continue
+            }
         }
         fname := runtime.FuncForPC(reflect.ValueOf(fn).Pointer()).Name()
         split := strings.Split(fname, ".")
@@ -104,12 +108,6 @@ func main() {
             "fetcher": split[len(split) - 1],
         }).Info("Feed detected")
 
-        if split[len(split) - 1] == "FeedFromWayback" && !ArchiveToo {
-            log.WithFields(log.Fields{
-                "url": url,
-            }).Info("Not fetching from archive.org")
-            continue
-        }
         feed, err := fn(url)
         if err != nil {
             log.WithFields(log.Fields{
