@@ -1,0 +1,59 @@
+<html>
+<head>
+  <title>Let's build a feed</title>
+  <link rel="stylesheet" href="static/main.css">
+</head>
+<body>
+  <script type="text/javascript">
+    fetch({{ .ApiUrl }}).then(function(response) {
+      response.text().then(function(text) {
+        var data = JSON.parse(text);
+        ["url", "caution", "nItems"].forEach(function(key) {
+          document.getElementById(key).textContent = data[key];
+        });
+        document.getElementById("url").setAttribute("href", data["url"]);
+        document.getElementById("working").textContent = "Done!";
+        document.getElementById("working").hidden = true;
+        if (data["caution"] != "") {
+          document.getElementById("caution").hidden = false;
+        }
+        ["first", "last"].forEach(function(item) {
+          render = data[item];
+          element = document.getElementById(item);
+          element.getElementsByClassName("title")[0].textContent = render["title"];
+          element.getElementsByClassName("desc")[0].textContent = render["description"];
+          element.getElementsByClassName("link")[0].setAttribute("href", render["url"]);
+          element.getElementsByClassName("link")[0].textContent = render["url"];
+          element.getElementsByClassName("play")[0].setAttribute("src", render["enclosure"]);
+          element.getElementsByClassName("audiolink")[0].setAttribute("href", render["enclosure"]);
+        });
+      });
+    });
+  </script>
+
+  <h1>Here's a janky attempt to build you a feed. Think it worked?</h1>
+  <p id="working">Working...</p>
+  <p><span id="caution" class="alert" hidden>you shouldn't see this</span></p>
+  <a id="url"></a>
+  <p> <span id="nItems"></span> items were found while building that feed. The
+  oldest one was <p>
+  <div id="first" class="item">
+    <h3 class="title"></h3>
+    <p class="desc"></p>
+    <audio controls class="play" preload="none">
+      <p><a class="audiolink">Enclosed audio.</a></p>
+    </audio>
+    <a class="link"></a>
+  </div>
+  <p>and the newest one was</p>
+  <div id="last" class="item">
+    <h3 class="title"></h3>
+    <p class="desc"></p>
+    <audio controls class="play" preload="none">
+      <p><a class="audiolink">Enclosed audio.</a></p>
+    </audio>
+    <a class="link"></a>
+  </div>
+  <p>Does that seem about right?</p>
+</body>
+</html>

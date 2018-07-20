@@ -1,0 +1,19 @@
+<html>
+<head>
+  <title>{{ .Title }}</title>
+</head>
+<body>
+  <h1>{{ .Title }}</h1>
+  <p>Here's the rerun for <a href="{{ .Url }}">{{ .Url }}</a>
+  , on a {{ .Weekdays }} schedule, if it started
+  a week ago. If it looks good, you should <a href="{{ .FeedLink}}">subscribe
+    and listen</a>.</p>
+  <ul>
+    {{ range .Items }}
+      <li><a href="{{ .Link }}">{{ .Title }}</a> {{ .NewDate }}
+        (Originally published {{ .OldDate }})</li>
+    {{ end }}
+  </ul>
+  [[ footer goes here ]]
+</body>
+</html>

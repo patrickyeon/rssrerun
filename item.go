@@ -22,6 +22,12 @@ type Item interface {
     String() string
     // the actual, parsed, xml.Node of the document
     Node() xml.Node
+    // Do our best to get a representation of an Item that can be displayed
+    Render() RenderItem
+}
+
+type RenderItem struct {
+    PubDate, Title, Description, Guid, Url, Enclosure string
 }
 
 type RssItem struct {
@@ -52,23 +58,18 @@ func (item *RssItem) SetPubDate(date time.Time) (error) {
 
 func (item *RssItem) Guid() (string, error) {
     // come on, let's hope for a proper guid
-    gtag, err := item.src.Search("guid")
-    if err == nil && len(gtag) > 0 {
-        return gtag[0].Content(), nil
+    guid := tryContent(item.src, "guid")
+    if len(guid) > 0 {
+        return guid, nil
     }
+
     // no guid tag? just concat title and link and hope it's unique
-    title, err := item.src.Search("title")
-    if err != nil {
-        return "", err
-    }
-    link, err := item.src.Search("link")
-    if err != nil {
-        return "", err
-    }
+    title := tryContent(item.src, "title")
+    link := tryContent(item.src, "link")
     if len(link) == 0 || len(title) == 0 {
         return "", errors.New("can't build a guid")
     }
-    return title[0].Content() + " - " + link[0].Content(), nil
+    return title + " - " + link, nil
 }
 
 func (item *RssItem) String() string {
@@ -77,6 +78,18 @@ func (item *RssItem) String() string {
 
 func (item *RssItem) Node() xml.Node {
     return item.src
+}
+
+func (item *RssItem) Render() RenderItem {
+    pubDate, _ := item.PubDate()
+    return RenderItem{
+        pubDate.Format("2006-02-01"),
+        titleish(item),
+        tryContent(item.src, "description"),
+        tryContent(item.src, "guid"),
+        tryContent(item.src, "link"),
+        tryAttr(item.src, "enclosure", "url"),
+    }
 }
 
 
@@ -116,6 +129,33 @@ func (item *AtomItem) Node() xml.Node {
     return item.src
 }
 
+func (item *AtomItem) Render() RenderItem {
+    pubDate, _ := item.PubDate()
+    desc := tryContent(item.src, "content")
+    if len(desc) == 0 {
+        desc = tryContent(item.src, "summary")
+    }
+    id := tryContent(item.src, "id")
+    enclosure := ""
+    encTags, err := item.src.Search("link")
+    if err == nil && len(encTags) > 0 {
+        for _, tag := range encTags {
+            rel, found := tag.Attributes()["rel"]
+            if found && rel.Value() == "enclosure" {
+                enclosure = tag.Attributes()["href"].Value()
+                break
+            }
+        }
+    }
+    return RenderItem{
+        pubDate.Format("2006-02-01"),
+        tryContent(item.src, "title"),
+        desc,
+        id,
+        id,
+        enclosure,
+    }
+}
 
 func parseDate(s string) (time.Time, error) {
     for _, typ := range(dateTypes) {
@@ -153,4 +193,40 @@ func MkItem(s []byte) (Item, error) {
 
 func zeroDate() time.Time {
     return time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
+}
+
+func tryContent(node xml.Node, tagname string) string {
+    // return the text content of that tag if it exists, "" if it doesn't
+    tag, err := node.Search(tagname)
+    if err == nil && len(tag) > 0 {
+        return tag[0].Content()
+    }
+    return ""
+}
+
+func tryAttr(node xml.Node, tagname string, attr string) string {
+    tags, err := node.Search(tagname)
+    if err != nil || len(tags) == 0 {
+        return ""
+    }
+    for _, tag := range tags {
+        val, found := tag.Attributes()[attr]
+        if found {
+            return val.Value()
+        }
+    }
+    return ""
+}
+
+func titleish(item Item) string {
+    // FIXME this is rss-centric right this moment
+    titletxt := tryContent(item.Node(), "title")
+    if len(titletxt) > 0 {
+        return titletxt
+    }
+    titletxt = tryContent(item.Node(), "description")
+    if len(titletxt) > 150 {
+        titletxt = titletxt[0:147] + "..."
+    }
+    return titletxt
 }

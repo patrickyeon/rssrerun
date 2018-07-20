@@ -1,0 +1,59 @@
+<html>
+<head>
+  <title>Reruns Under Your Control!</title>
+</head>
+<body>
+<script type="text/javascript">
+	function checkAll(check) {
+		var form = document.getElementById("scheduleForm");
+		for (i = 0, n = form.elements.length; i < n; i++)
+			if (form.elements[i].className.indexOf('day') != -1) {
+				form.elements[i].checked = check;
+			}
+	}
+</script>
+<h1>Podcast reruns</h1>
+
+I'm not sure if this is how everybody else listens to podcasts, but I like to subscribe to a bunch, auto-download them to my phone, and then have my listening app always play me the oldest episode. Once I've subscribed to a podcast, it's all automatic from there on out.
+
+This breaks down when I find an older show and want to listen to the back-catalog as well. The usual pattern is to download the older episodes and either binge on them or manually interleave them into my ongoing listening. No longer! Choose a feed here, set a re-broadcasting schedule, and the rssrerun service will generate a new feed for you. Drop that into your podcatcher and it will let you catch up at a natural pace and just switch over to the "live" schedule once you're up to date.
+
+<h2>Try it out</h2>
+
+<form action="/preview" method="GET" id="scheduleForm">
+  <select name="podcast">
+    <option value="http://embedded.fm/episodes?format=rss" selected>Embedded.fm</option>
+    <option value="http://www.theamphour.com/feed/podcast">The Amp Hour</option>
+	<option value="http://feeds.feedburner.com/MakingItWithJimmyDirestaBobClagettAndDavidPicciuto"> Making It with Jimmy Diresta, Bob Clagett, and David Picciuto</option>
+	<option value="http://www.npr.org/rss/podcast.php?id=510289">NPR's Planet Money</option>
+	<option value="http://sciencesortof.libsyn.com/rss">Science, Sort Of</option>
+	<option value="http://feeds.soundcloud.com/users/soundcloud:users:46212671/sounds.rss"> Motorcycles and Misfits</option>
+  </select>
+  <br />
+  Schedule:
+  <input type="checkbox" onclick="checkAll(this.checked)"/><em>Select/Clear all</em><br/>
+  <input type="checkbox" name="sun" class="day" value=""/>Sunday<br/>
+  <input type="checkbox" name="mon" class="day" value=""/>Monday<br/>
+  <input type="checkbox" name="tue" class="day" value=""/>Tuesday<br/>
+  <input type="checkbox" name="wed" class="day" value=""/>Wednesday<br/>
+  <input type="checkbox" name="thu" class="day" value=""/>Thursday<br/>
+  <input type="checkbox" name="fri" class="day" value=""/>Friday<br/>
+  <input type="checkbox" name="sat" class="day" value=""/>Saturday<br/>
+
+  <input type="submit" value="Create Reruns"/>
+</form>
+
+<h2>Request another feed</h2>
+
+Yeah, this is meant to be a general tool, not just those specific feeds. If there's a podcast you'd like to see here, submit it and I can try to build a historical feed. Even if that doesn't work, eventually it hopefully will and I can let you know when it's ready. There's just one of me working on this in my spare time, and I'd like to make sure every feed is handled properly while I develop the ingestors, so it might take some time.
+
+<form action="/build" method="GET" id="buildNewForm">
+  <input name="url"/> <input type="submit" value="Generate!"/>
+</form>
+
+<h2>About rssrerun</h2>
+
+Original work by patrickyeon, because I love podcasts and value having tools to make life easier. Follow the project on <a href="https://github.com/patrickyeon/rssrerun">github</a>.
+
+</body>
+</html>

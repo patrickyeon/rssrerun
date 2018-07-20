@@ -1,0 +1,23 @@
+body {
+  padding-left: 5%;
+  padding-right: 5%;
+}
+
+h1 {
+  margin-left: 5%;
+  font-variant: small-caps;
+}
+
+.item {
+  margin-left: 1%;
+  margin-right: 10%;
+  padding: 0.5%;
+  background-color: #85c1e3;
+  border: 1px solid #21618c;
+}
+
+.alert {
+  padding: 0.5%;
+  border: 2px solid #d35400;
+  background-color: #fad7a0;
+}

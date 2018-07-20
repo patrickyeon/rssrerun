@@ -1,5 +1,6 @@
 package main
 import (
+    "encoding/json"
     "fmt"
     "html/template"
     "net/http"
@@ -124,6 +125,9 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildHandler(w http.ResponseWriter, r *http.Request) {
+    type buildDat struct {
+        ApiUrl string
+    }
     req := r.URL.Query()
     if req["url"] == nil {
         errHandler(w, "need a URL to try to build a feed")
@@ -135,32 +139,76 @@ func buildHandler(w http.ResponseWriter, r *http.Request) {
         errHandler(w, "TODO: feed exists. give it to user")
         return
     }
+    dat := buildDat{"/testapi?url=" + neturl.PathEscape(url)}
+    templateOrErr(w, "build.html", dat)
+}
+
+func fetchApiHandler(w http.ResponseWriter, r *http.Request) {
+    req := r.URL.Query()
+    if req["url"] == nil {
+        errJsonHandler(w, map[string]string{
+            "err": "badurl",
+            "msg": "no URL provided to build a feed",
+        })
+        return
+    }
+    url := req["url"][0]
+    if store.NumItems(url) > 0 {
+        // tell them it already exists, encourage them to sign up
+        errJsonHandler(w, map[string]string{"err": "feedexists"})
+        return
+    }
     caution := ""
     fn, err := rssrerun.SelectFeedFetcher(url)
     if err == rssrerun.FetcherDetectFailed {
         fn = rssrerun.FeedFromUrl
         caution = CautionNoFetcher
     } else if err != nil {
-        errHandler(w, err.Error())
+        errJsonHandler(w, map[string]string{
+            "err": "rerunerr",
+            "msg": err.Error(),
+        })
         return
     }
     feed, err := fn(url)
     if err != nil {
-        errHandler(w, err.Error())
+        errJsonHandler(w, map[string]string{
+            "err": "rerunerr",
+            "msg": err.Error(),
+        })
         return
     }
     nItems := feed.LenItems()
     if nItems < 2 {
-        errHandler(w, "that feed, as rebuilt, looks broken.")
+        errJsonHandler(w, map[string]string{
+            "err": "rerunerr",
+            "msg": "that feed, as rebuild, looks broken.",
+        })
         return
     }
-    type buildDat struct {
-        ItemCount int
-        First, Last, Url, Caution string
+    first := renderToMap(feed.Item(nItems - 1).Render())
+    last := renderToMap(feed.Item(0).Render())
+    err = json.NewEncoder(w).Encode(map[string]interface{}{
+        "nItems": nItems,
+        "first": first,
+        "last": last,
+        "url": url,
+        "caution": caution,
+    })
+    if err != nil {
+        errHandler(w, err.Error())
     }
-    dat := buildDat{nItems, titleish(feed.Item(nItems - 1)),
-                    titleish(feed.Item(0)), url, caution}
-    templateOrErr(w, "build.html", dat)
+}
+
+func renderToMap(item rssrerun.RenderItem) map[string]string {
+    return map[string]string {
+        "pubdate": item.PubDate,
+        "title": item.Title,
+        "description": item.Description,
+        "guid": item.Guid,
+        "url": item.Url,
+        "enclosure": item.Enclosure,
+    }
 }
 
 
@@ -245,10 +293,19 @@ func errHandler(w http.ResponseWriter, msg string) {
     fmt.Fprintf(w, "<body>%s</body></html>", msg)
 }
 
+func errJsonHandler(w http.ResponseWriter, dat map[string]string) {
+    err := json.NewEncoder(w).Encode(dat)
+    if err != nil {
+        errHandler(w, err.Error())
+    }
+}
+
 func main() {
     http.HandleFunc("/", homeHandler)
     http.HandleFunc("/preview", previewHandler)
     http.HandleFunc("/build", buildHandler)
     http.HandleFunc("/feed", feedHandler)
+    http.HandleFunc("/testapi", fetchApiHandler)
+    http.Handle("/static/", http.FileServer(http.Dir("public")))
     http.ListenAndServe(":8007", nil)
 }
