@@ -247,7 +247,6 @@ func renderToMap(item rssrerun.RenderItem) map[string]string {
     }
 }
 
-
 func feedHandler(w http.ResponseWriter, r *http.Request) {
     req := r.URL.Query()
     if req["url"] == nil || req["start"] == nil || req["sched"] == nil {

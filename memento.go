@@ -5,7 +5,6 @@ import (
     "bytes"
     "errors"
     "io"
-    "net/http"
     "regexp"
     "sort"
     "strings"
@@ -101,7 +100,7 @@ func ParseTimeMap(r io.Reader) (*TimeMap, error) {
 }
 
 func FetchTimeMap(url string) (*TimeMap, error) {
-    res, err := http.Get(url)
+    res, err := rrFetch(url)
     if err != nil {
         return nil, err
     }

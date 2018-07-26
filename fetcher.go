@@ -2,6 +2,7 @@ package rssrerun
 
 import (
     "errors"
+    "io"
     "io/ioutil"
     "net/http"
     neturl "net/url"
@@ -13,9 +14,29 @@ import (
     "github.com/jbowtie/gokogiri/xml"
 )
 
+func limitedBody(response *http.Response) ([]byte, error) {
+    const maxFetch = 1024 * 1127
+    retval, err := ioutil.ReadAll(io.LimitReader(response.Body, maxFetch))
+    if err == nil && len(retval) >= maxFetch {
+        return retval, errors.New("Content truncated at 1.1MB")
+    }
+    return retval, err
+}
+
 type FeedFunc func(string) (Feed, error)
+const userAgent = "rssrerunFetcher/0.1"
 
 var FetcherDetectFailed = errors.New("Failed to guess fetcher. Try FeedFromUrl?")
+
+var client = &http.Client{}
+func rrFetch(url string) (*http.Response, error) {
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return nil, err
+    }
+    req.Header.Set("user-agent", userAgent)
+    return client.Do(req)
+}
 
 //  Make a best-effort attempt to determine if one of the feed fetching
 // functions we've developed is likely to work to read fetch and reconstruct the
@@ -37,7 +58,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
 
     //  try actually fetching, this will get us through redirects to the actual
     // url, also an early bail on eg. 404's
-    resp, err := http.Get(url)
+    resp, err := rrFetch(url)
     if err != nil {
         return nil, err
     }
@@ -51,7 +72,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     }
 
     // parse the xml document and see if we get `channel/generator` hints
-    dat, err := ioutil.ReadAll(resp.Body)
+    dat, err := limitedBody(resp)
     if err != nil {
         return nil, err
     }
@@ -122,7 +143,7 @@ func getLibsynHostname(doc xml.Document) (string, error) {
             if parsedUrl.Hostname() == "traffic.libsyn.com" {
                 stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
                 hostname := "https://" + stub + ".libsyn.com"
-                resp, err := http.Get(hostname + "/rss")
+                resp, err := rrFetch(hostname + "/rss")
                 if err != nil {
                     return "", err
                 }
@@ -149,20 +170,14 @@ func bytesFromUrl(url string) ([]byte, error) {
 
 func bytesFromUrlWithBackoff(url string, delay int64) ([]byte, int64, error) {
     // Fetch the url, backing off by delay if we get an HTTP 429
-    // TODO: ugggh, this is totally not the place to do this.
-    if strings.HasPrefix(url, "https://web.archive.org") {
-        a := strings.Split(url, "/http")
-        url = a[0] + "if_/http" + a[1]
-    }
-
     for delay < 130 {
         // arbitrarily, not backing off more than 130 sec
-        resp, err := http.Get(url)
+        resp, err := rrFetch(url)
         if err != nil {
             return nil, -1, err
         }
         if resp.StatusCode < 400 {
-            dat, err := ioutil.ReadAll(resp.Body)
+            dat, err := limitedBody(resp)
             if err != nil {
                 return nil, -1, err
             }
@@ -385,7 +400,17 @@ func nextSelfLink(f Feed, url string) (string, error) {
 
 
 func FeedFromWayback(url string) (Feed, error) {
-    return FeedFromArchive("https://web.archive.org/web/timemap/link/*/" + url)
+    tm, err := SpiderTimeMap("https://web.archive.org/web/timemap/link/*/" + url)
+    if err != nil {
+        return nil, err
+    }
+    for _, mem := range tm.GetMementos() {
+        if strings.HasPrefix(mem.Url, "https://web.archive.org") {
+            a := strings.Split(mem.Url, "/http")
+            mem.Url = a[0] + "if_/http" + a[1]
+        }
+    }
+    return feedFromTimemap(tm)
 }
 
 func FeedFromArchive(url string) (Feed, error) {
@@ -393,6 +418,10 @@ func FeedFromArchive(url string) (Feed, error) {
     if err != nil {
         return nil, err
     }
+    return feedFromTimemap(tm)
+}
+
+func feedFromTimemap(tm *TimeMap) (Feed, error) {
     // get the mementos, most recent first
     mems := tm.GetMementos()
     latest, mems := mems[0], mems[1:]
