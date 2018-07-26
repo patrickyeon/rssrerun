@@ -5,7 +5,7 @@
 </head>
 <body>
   <script type="text/javascript">
-    fetch({{ .ApiUrl }}).then(function(response) {
+    fetch({{ .ApiStub }} + encodeURIComponent({{ .Url }})).then(function(response) {
       response.text().then(function(text) {
         var data = JSON.parse(text);
         ["url", "caution", "nItems"].forEach(function(key) {
@@ -29,6 +29,18 @@
         });
       });
     });
+
+    function gradeFeed(grade) {
+      fetch("/grade?url={{ .Url }}&grade=" + grade).then(function(response) {
+        var gradebox = document.getElementById("gradeMe");
+        var buttons = gradebox.getElementsByClassName("button");
+        for (var i = 0; i < buttons.length; i++) {
+          buttons[i].hidden = true;
+        }
+        gradebox.getElementsByClassName("thanks")[0].hidden = false;
+      });
+    }
+
   </script>
 
   <h1>Here's a janky attempt to build you a feed. Think it worked?</h1>
@@ -54,6 +66,13 @@
     </audio>
     <a class="link"></a>
   </div>
-  <p>Does that seem about right?</p>
+  <p>How well did the feed generation do?</p>
+  <div id="gradeMe">
+    <span class="button" style="background-color:#f1948a;" onclick="gradeFeed('user-vbad')">Horrible (useless)</span>
+    <span class="button" style="background-color:#e59866;" onclick="gradeFeed('user-bad')">Bad (but thanks for trying)</span>
+    <span class="button" style="background-color:#f7dc6f;" onclick="gradeFeed('user-good')">Good (but missing something)</span>
+    <span class="button" style="background-color:#7dcea0;" onclick="gradeFeed('user-perfect')">Perfect</span>
+    <span class="thanks" hidden>Thanks for your feedback!</span>
+  </div>
 </body>
 </html>

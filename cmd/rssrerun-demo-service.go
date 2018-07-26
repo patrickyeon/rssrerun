@@ -22,6 +22,23 @@ var store = rssrerun.NewJSONStore("data/stores/podcasts/")
 
 var CautionNoFetcher = "No auto-builder known. Just using live feed."
 
+type feedGrade int
+const (
+    failed feedGrade = iota
+    building
+    adminBad
+    userVbad
+    userBad
+    userGood
+    userPerfect
+    autoSuspect
+    autoTrusted
+    adminGood
+)
+var gradeNames = []string{"failed", "building", "admin-bad", "user-vbad",
+                          "user-bad", "user-good", "user-perfect",
+                          "auto-suspect", "auto-trusted", "admin-good"}
+
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) error {
     err := templates.ExecuteTemplate(w, name, data)
     if err != nil {
@@ -126,7 +143,7 @@ func previewHandler(w http.ResponseWriter, r *http.Request) {
 
 func buildHandler(w http.ResponseWriter, r *http.Request) {
     type buildDat struct {
-        ApiUrl string
+        ApiStub, Url string
     }
     req := r.URL.Query()
     if req["url"] == nil {
@@ -134,12 +151,14 @@ func buildHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     url := req["url"][0]
-    if store.NumItems(url) > 0 {
+    // TODO really should have an existence test for url
+    nItems := store.NumItems(url)
+    if nItems != 0 {
         // tell them it already exists, encourage them to sign up
         errHandler(w, "TODO: feed exists. give it to user")
         return
     }
-    dat := buildDat{"/testapi?url=" + neturl.PathEscape(url)}
+    dat := buildDat{"/fetch?url=", url}
     templateOrErr(w, "build.html", dat)
 }
 
@@ -153,21 +172,30 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     url := req["url"][0]
-    if store.NumItems(url) > 0 {
+    _, err := store.CreateIndex(url)
+    if err != nil {
         // tell them it already exists, encourage them to sign up
         errJsonHandler(w, map[string]string{"err": "feedexists"})
         return
     }
+    err = store.SetInfo(url, "grade", gradeNames[building])
+    if err != nil {
+        errHandler(w, "TODO: error setting grade=building?")
+        return
+    }
     caution := ""
     fn, err := rssrerun.SelectFeedFetcher(url)
+    gradename := gradeNames[autoTrusted]
     if err == rssrerun.FetcherDetectFailed {
         fn = rssrerun.FeedFromUrl
         caution = CautionNoFetcher
+        gradename = gradeNames[autoSuspect]
     } else if err != nil {
         errJsonHandler(w, map[string]string{
             "err": "rerunerr",
             "msg": err.Error(),
         })
+        _ = store.SetInfo(url, "grade", gradeNames[failed])
         return
     }
     feed, err := fn(url)
@@ -176,16 +204,24 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) {
             "err": "rerunerr",
             "msg": err.Error(),
         })
+        _ = store.SetInfo(url, "grade", gradeNames[failed])
         return
     }
     nItems := feed.LenItems()
+    revFeed := make([]rssrerun.Item, nItems)
+    for i := 0; i < nItems; i++ {
+        revFeed[i] = feed.Item(nItems - i - 1)
+    }
+    store.Update(url, revFeed)
     if nItems < 2 {
         errJsonHandler(w, map[string]string{
             "err": "rerunerr",
-            "msg": "that feed, as rebuild, looks broken.",
+            "msg": "that feed, as rebuilt, looks broken.",
         })
+        _ = store.SetInfo(url, "grade", gradeNames[autoSuspect])
         return
     }
+    _ = store.SetInfo(url, "grade", gradename)
     first := renderToMap(feed.Item(nItems - 1).Render())
     last := renderToMap(feed.Item(0).Render())
     err = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -288,6 +324,46 @@ func feedHandler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprint(w, string(fd.BytesWithItems(items)))
 }
 
+func gradeApiHandler(w http.ResponseWriter, r *http.Request) {
+    req := r.URL.Query()
+    if req["url"] == nil || req["grade"] == nil {
+        errHandler(w, "not enough params (need url, grade)")
+        return
+    }
+    url := req["url"][0]
+    prev, err := store.GetInfo(url, "grade")
+    if err != nil {
+        errHandler(w, err.Error())
+        return
+    }
+    valid := false
+    // TODO all of this grading really needs to be organized properly
+    for _, g := range gradeNames[userVbad:autoSuspect + 1] {
+        if prev == g {
+            valid = true
+            break
+        }
+    }
+    if !valid {
+        errHandler(w, "trying to override non-user grade")
+        return
+    }
+    grade := req["grade"][0]
+    switch(grade) {
+    case gradeNames[userVbad]:
+    case gradeNames[userBad]:
+    case gradeNames[userGood]:
+    case gradeNames[userPerfect]:
+        store.SetInfo(url, "grade", grade)
+        break
+    default:
+        errHandler(w, "trying to set a non-user or invalid grade")
+        return
+    }
+
+    fmt.Fprintf(w, "ok")
+}
+
 func errHandler(w http.ResponseWriter, msg string) {
     fmt.Fprintf(w, "<html><head><title>broken</title></head>")
     fmt.Fprintf(w, "<body>%s</body></html>", msg)
@@ -305,7 +381,8 @@ func main() {
     http.HandleFunc("/preview", previewHandler)
     http.HandleFunc("/build", buildHandler)
     http.HandleFunc("/feed", feedHandler)
-    http.HandleFunc("/testapi", fetchApiHandler)
+    http.HandleFunc("/fetch", fetchApiHandler)
+    http.HandleFunc("/grade", gradeApiHandler)
     http.Handle("/static/", http.FileServer(http.Dir("public")))
     http.ListenAndServe(":8007", nil)
 }

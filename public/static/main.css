@@ -21,3 +21,10 @@ h1 {
   border: 2px solid #d35400;
   background-color: #fad7a0;
 }
+
+.button {
+  margin: 5px;
+  padding-left: 2px;
+  padding-right: 2px;
+  border: 1px solid #000000;
+}
