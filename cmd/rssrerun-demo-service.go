@@ -21,6 +21,7 @@ var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
 var store = rssrerun.NewJSONStore("data/stores/podcasts/")
 
 var CautionNoFetcher = "No auto-builder known. Just using live feed."
+var CautionSketchyFetcher = "Best-guess auto-builder, but it might not be great."
 
 type feedGrade int
 const (
@@ -189,6 +190,9 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) {
     if err == rssrerun.FetcherDetectFailed {
         fn = rssrerun.FeedFromUrl
         caution = CautionNoFetcher
+        gradename = gradeNames[autoSuspect]
+    } else if err == rssrerun.FetcherDetectUntrusted {
+        caution = CautionSketchyFetcher
         gradename = gradeNames[autoSuspect]
     } else if err != nil {
         errJsonHandler(w, map[string]string{

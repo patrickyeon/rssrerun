@@ -27,6 +27,7 @@ type FeedFunc func(string) (Feed, error)
 const userAgent = "rssrerunFetcher/0.1"
 
 var FetcherDetectFailed = errors.New("Failed to guess fetcher. Try FeedFromUrl?")
+var FetcherDetectUntrusted = errors.New("Guessed a fetcher, but not confident.")
 
 var client = &http.Client{}
 func rrFetch(url string) (*http.Response, error) {
@@ -110,7 +111,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     _, err = getLibsynHostname(doc)
     if err == nil {
         // we found one, but don't actually care what it is right now
-        return FeedFromLibsyn, nil
+        return FeedFromLibsyn, FetcherDetectUntrusted
     }
 
     //  As a last ditch, there's a chance the entire history exists in the
