@@ -6,10 +6,11 @@ import (
     "encoding/json"
     "errors"
     "io/ioutil"
-    "net/http"
     "os"
     "strconv"
     "time"
+
+    "github.com/patrickyeon/rssrerun/util"
 )
 
 //  All of the feeds we monitor will be stored broken up by items already to
@@ -96,7 +97,7 @@ func justmd5(url string) string {
 
 // canonicalize an `url` by following any redirects until we get data
 func followHttp(url string) (string, error) {
-    data, err := http.Get(url)
+    data, err := util.Get(url)
     if err != nil {
         return "", err
     }

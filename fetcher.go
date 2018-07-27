@@ -2,9 +2,7 @@ package rssrerun
 
 import (
     "errors"
-    "io"
     "io/ioutil"
-    "net/http"
     neturl "net/url"
     "strconv"
     "strings"
@@ -12,32 +10,15 @@ import (
 
     "github.com/jbowtie/gokogiri"
     "github.com/jbowtie/gokogiri/xml"
+
+    "github.com/patrickyeon/rssrerun/util"
 )
 
-func limitedBody(response *http.Response) ([]byte, error) {
-    const maxFetch = 1024 * 1127
-    retval, err := ioutil.ReadAll(io.LimitReader(response.Body, maxFetch))
-    if err == nil && len(retval) >= maxFetch {
-        return retval, errors.New("Content truncated at 1.1MB")
-    }
-    return retval, err
-}
-
 type FeedFunc func(string) (Feed, error)
-const userAgent = "rssrerunFetcher/0.1"
+const maxBytes = 1024 * 1127 // 1.1MB
 
 var FetcherDetectFailed = errors.New("Failed to guess fetcher. Try FeedFromUrl?")
 var FetcherDetectUntrusted = errors.New("Guessed a fetcher, but not confident.")
-
-var client = &http.Client{}
-func rrFetch(url string) (*http.Response, error) {
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return nil, err
-    }
-    req.Header.Set("user-agent", userAgent)
-    return client.Do(req)
-}
 
 //  Make a best-effort attempt to determine if one of the feed fetching
 // functions we've developed is likely to work to read fetch and reconstruct the
@@ -59,7 +40,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
 
     //  try actually fetching, this will get us through redirects to the actual
     // url, also an early bail on eg. 404's
-    resp, err := rrFetch(url)
+    resp, err := util.LimitedBody(url, maxBytes)
     if err != nil {
         return nil, err
     }
@@ -73,7 +54,7 @@ func SelectFeedFetcher(url string) (FeedFunc, error) {
     }
 
     // parse the xml document and see if we get `channel/generator` hints
-    dat, err := limitedBody(resp)
+    dat, err := ioutil.ReadAll(resp.Body)
     if err != nil {
         return nil, err
     }
@@ -144,7 +125,7 @@ func getLibsynHostname(doc xml.Document) (string, error) {
             if parsedUrl.Hostname() == "traffic.libsyn.com" {
                 stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
                 hostname := "https://" + stub + ".libsyn.com"
-                resp, err := rrFetch(hostname + "/rss")
+                resp, err := util.Get(hostname + "/rss")
                 if err != nil {
                     return "", err
                 }
@@ -173,15 +154,12 @@ func bytesFromUrlWithBackoff(url string, delay int64) ([]byte, int64, error) {
     // Fetch the url, backing off by delay if we get an HTTP 429
     for delay < 130 {
         // arbitrarily, not backing off more than 130 sec
-        resp, err := rrFetch(url)
+        resp, err := util.LimitedBody(url, maxBytes)
         if err != nil {
             return nil, -1, err
         }
         if resp.StatusCode < 400 {
-            dat, err := limitedBody(resp)
-            if err != nil {
-                return nil, -1, err
-            }
+            dat, _ := ioutil.ReadAll(resp.Body)
             return dat, delay, nil
         } else if resp.StatusCode == 429 {
             // back off like a chump

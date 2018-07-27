@@ -9,6 +9,8 @@ import (
     "sort"
     "strings"
     "time"
+
+    "github.com/patrickyeon/rssrerun/util"
 )
 
 var linkSplitter = regexp.MustCompile("<([^>]*)>((.|\\n)*)")
@@ -100,7 +102,7 @@ func ParseTimeMap(r io.Reader) (*TimeMap, error) {
 }
 
 func FetchTimeMap(url string) (*TimeMap, error) {
-    res, err := rrFetch(url)
+    res, err := util.Get(url)
     if err != nil {
         return nil, err
     }
