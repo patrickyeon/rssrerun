@@ -95,27 +95,15 @@ func justmd5(url string) string {
     return hex.EncodeToString(ret[:])
 }
 
-// canonicalize an `url` by following any redirects until we get data
-func followHttp(url string) (string, error) {
-    data, err := util.Get(url)
-    if err != nil {
-        return "", err
-    }
-    if stat := data.StatusCode; stat != 200 {
-        return "", errors.New("HTTP error " + strconv.Itoa(stat))
-    }
-    return data.Request.URL.String(), nil
-}
-
-//  canonicalize an `url` as above, but keep a cache of url->canonicalization
-// mappings so that we're not doing a fetch every time we want the canonical
+//  wrap a cache of url->canonicalization mappings around the canonicalization
+// so that we're not doing a fetch every time we want the canonical
 // url for something.
 var canonCache = make(map[string]string)
 func cachingFollowHttp(url string) (string, error) {
     if canonCache[url] != "" {
         return canonCache[url], nil
     }
-    ret, err := followHttp(url)
+    ret, err := util.CanonicalUrl(url)
     if err == nil {
         canonCache[url] = ret
     }

@@ -126,6 +126,7 @@ func getLibsynHostname(doc xml.Document) (string, error) {
                 stub := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")[0]
                 hostname := "https://" + stub + ".libsyn.com"
                 resp, err := util.Get(hostname + "/rss")
+                resp.Body.Close()
                 if err != nil {
                     return "", err
                 }

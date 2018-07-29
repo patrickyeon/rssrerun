@@ -103,11 +103,12 @@ func ParseTimeMap(r io.Reader) (*TimeMap, error) {
 
 func FetchTimeMap(url string) (*TimeMap, error) {
     res, err := util.Get(url)
+    defer res.Body.Close()
     if err != nil {
         return nil, err
     }
-    if res.StatusCode != 200 {
-        return nil, errors.New("non-200 HTTP code")
+    if res.StatusCode <= 400 {
+        return nil, errors.New(res.Status)
     }
     return ParseTimeMap(res.Body)
 }
