@@ -9,7 +9,14 @@ import (
     "strings"
     "testing"
     "time"
+
+    "github.com/patrickyeon/rssrerun/util"
 )
+
+func TestMain(m* testing.M) {
+    util.BeSafe = false
+    os.Exit(m.Run())
+}
 
 type testMemento struct {
     Url string
