@@ -9,9 +9,15 @@ import (
     "net"
     "net/http"
     neturl "net/url"
+    "time"
 )
 
-var client = &http.Client{}
+var client = &http.Client{
+    nil,
+    filterRedirect,
+    nil,
+    0,
+}
 var userAgent = "rssrerunFetcher/0.1"
 
 var _bannedHosts = []string{}
@@ -33,6 +39,44 @@ func bannedHosts() []string {
 var BeSafe = true
 
 var ErrorBannedHost = errors.New("Trying to fetch from a banned host")
+var ErrorTimeout = errors.New("Fetch took too long (>20 seconds).")
+var ErrorTooManyRedirects = errors.New("Too many redirects (>10).")
+
+func filterRedirect(req *http.Request, via []*http.Request) error {
+    if len(via) >= 10 {
+        return ErrorTooManyRedirects
+    }
+    if BeSafe {
+        return urlCheck(req.URL)
+    }
+    return nil
+}
+
+func urlCheck(url *neturl.URL) error {
+    bHosts := bannedHosts()
+    for i := 0; i < len(bHosts); i++ {
+        if url.Hostname() == bHosts[i] {
+            return ErrorBannedHost
+        }
+    }
+    if ip := net.ParseIP(url.Hostname()); ip != nil {
+        // host is a raw IP, 
+        if ip.IsLoopback() {
+            return ErrorBannedHost
+        }
+    } else {
+        ips, err := net.LookupIP(url.Hostname())
+        if err != nil {
+            return err
+        }
+        for _, ip := range ips {
+            if ip.IsLoopback() {
+                return ErrorBannedHost
+            }
+        }
+    }
+    return nil
+}
 
 func Get(url string) (*http.Response, error) {
     u, err := neturl.Parse(url)
@@ -40,23 +84,33 @@ func Get(url string) (*http.Response, error) {
         return nil, err
     }
     if BeSafe {
-        bHosts := bannedHosts()
-        for i := 0; i < len(bHosts); i++ {
-            // TODO this needs to be checked on redirects as well
-            if u.Hostname() == bHosts[i] {
-                return nil, ErrorBannedHost
-            }
-        }
-        if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
-            return nil, ErrorBannedHost
+        if err = urlCheck(u); err != nil {
+            return nil, err
         }
     }
+
     req, err := http.NewRequest("GET", url, nil)
     if err != nil {
         return nil, err
     }
     req.Header.Set("user-agent", userAgent)
-    return client.Do(req)
+
+    // do a bit of a dance to get a 20sec timeout
+    type getResult struct {
+        resp *http.Response;
+        err error;
+    }
+    c := make(chan getResult, 1)
+    go func() {
+        ret, err := client.Do(req)
+        c<- getResult{ret, err}
+    }()
+    select {
+    case res := <-c:
+        return res.resp, res.err
+    case <-time.After(20 * time.Second):
+        return nil, ErrorTimeout
+    }
 }
 
 func LimitedBody(url string, maxBytes int) (*http.Response, error) {
