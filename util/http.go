@@ -16,7 +16,7 @@ var client = &http.Client{
     nil,
     filterRedirect,
     nil,
-    0,
+    20 * time.Second,
 }
 var userAgent = "rssrerunFetcher/0.1"
 
@@ -95,22 +95,7 @@ func Get(url string) (*http.Response, error) {
     }
     req.Header.Set("user-agent", userAgent)
 
-    // do a bit of a dance to get a 20sec timeout
-    type getResult struct {
-        resp *http.Response;
-        err error;
-    }
-    c := make(chan getResult, 1)
-    go func() {
-        ret, err := client.Do(req)
-        c<- getResult{ret, err}
-    }()
-    select {
-    case res := <-c:
-        return res.resp, res.err
-    case <-time.After(20 * time.Second):
-        return nil, ErrorTimeout
-    }
+    return client.Do(req)
 }
 
 func LimitedBody(url string, maxBytes int) (*http.Response, error) {
