@@ -188,7 +188,15 @@ func MkItem(s []byte) (Item, error) {
     if err != nil {
         return nil, err
     }
-    return &RssItem{it.Root()}, nil
+    switch (it.Root().Name()) {
+    case "item":
+        return &RssItem{it.Root()}, nil
+    case "entry":
+        return &AtomItem{it.Root()}, nil
+    default:
+        break
+    }
+    return nil, errors.New("Couldn't detect feed type")
 }
 
 func zeroDate() time.Time {
