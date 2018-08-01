@@ -257,13 +257,11 @@ func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
     }
     feed := retFeed
     for true {
-        // FIXME: figure out if fNext should take the original url, or the most
-        //        recently used one. I suspect the latter.
-        nexturl, err := fNext(feed, url)
+        url, err = fNext(feed, url)
         if err != nil {
             return nil, err
         }
-        moreFeed, err := FeedFromUrl(nexturl)
+        moreFeed, err := FeedFromUrl(url)
         if err != nil {
             return nil, err
         }
@@ -304,6 +302,17 @@ func iterThroughFeed(url string, fNext nextFunc) (Feed, error) {
 }
 
 
+func updateUrl(url, key, val string) (string, error) {
+    u, err := neturl.Parse(url)
+    if err != nil {
+        return "", err
+    }
+    q := u.Query()
+    q.Set(key, val)
+    u.RawQuery = q.Encode()
+    return u.String(), nil
+}
+
 func FeedFromNPR(url string) (Feed, error) {
     return iterThroughFeed(url, nextForNPR)
 }
@@ -313,8 +322,7 @@ func nextForNPR(f Feed, url string) (string, error) {
     if err != nil {
         return "", err
     }
-    // break up url, then return it with
-    return url + "&endDate=" + earliestDate.Format("2006-01-02"), nil
+    return updateUrl(url, "endDate", earliestDate.Format("2006-01-02"))
 }
 
 
@@ -330,7 +338,7 @@ func nextForSquarespace(f Feed, url string) (string, error) {
     }
     // force some overlap, just in case
     offsetstr := strconv.FormatInt((offset.Unix() - 1) * 1000, 10)
-    return strings.Join([]string{url, "&offset=", offsetstr}, ""), nil
+    return updateUrl(url, "offset", offsetstr)
 }
 
 
