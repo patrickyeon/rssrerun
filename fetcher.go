@@ -363,9 +363,11 @@ func nextSelfLink(f Feed, url string) (string, error) {
     for _, ns := range doc.Root().DeclaredNamespaces() {
         if ns.Uri == "http://www.w3.org/2005/Atom" && len(ns.Prefix) > 0 {
             searches = append(searches, "channel/" + ns.Prefix + ":link")
+            searches = append(searches, "feed/" + ns.Prefix + ":link")
         }
     }
     searches = append(searches, "channel/link")
+    searches = append(searches, "feed/link")
     for _, search := range searches {
         links, err := doc.Root().Search(search)
         if err != nil {

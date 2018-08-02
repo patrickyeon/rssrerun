@@ -15,6 +15,8 @@ import (
 
     log "github.com/sirupsen/logrus"
     "github.com/rifflock/lfshook"
+    "github.com/jbowtie/gokogiri"
+
     "github.com/patrickyeon/rssrerun"
 )
 
@@ -338,11 +340,43 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
 
     // build and return the feed
     w.Header().Add("Content-Type", "text/xml")
-    wrap, err := store.GetInfo(url, "wrapper")
+    wrapstr, err := store.GetInfo(url, "wrapper")
     if err != nil {
         return errHandler(w, err.Error())
     }
-    fd, _ := rssrerun.NewFeed([]byte(wrap), nil)
+    wrap := []byte(wrapstr)
+    //  some feeds have an <itunes:new-feed-url> tag to act as a redirect. We
+    // are going to strip that out if it exists because we don't want to get
+    // overruled by a redirect.
+    doc, err := gokogiri.ParseXml(wrap)
+    if err != nil {
+        return errHandler(w, err.Error())
+    }
+    xp := doc.DocXPathCtx()
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        xp.RegisterNamespace(ns.Prefix, ns.Uri)
+    }
+    searches := []string{}
+    for _, ns := range doc.Root().DeclaredNamespaces() {
+        if ns.Uri == "http://www.itunes.com/dtds/podcast-1.0.dtd" && len(ns.Prefix) > 0 {
+            searches = append(searches, "channel/" + ns.Prefix + ":new-feed-url")
+            searches = append(searches, "feed/" + ns.Prefix + ":new-feed-url")
+        }
+    }
+    searches = append(searches, "channel/new-feed-url")
+    searches = append(searches, "feed/new-feed-url")
+    for _, search := range searches {
+        tags, err := doc.Root().Search(search)
+        if err != nil {
+            continue
+        }
+        for _, tag := range tags {
+            tag.Unlink()
+        }
+    }
+    wrap = doc.ToBuffer(nil)
+
+    fd, _ := rssrerun.NewFeed(wrap, nil)
     // flip the ordering of `items`
     for i := 0; i < len(items) / 2; i++ {
         j := len(items) - i - 1
