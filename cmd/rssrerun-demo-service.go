@@ -143,7 +143,7 @@ func previewHandler(w http.ResponseWriter, r *http.Request) error {
         return errHandler(w, "We don't have that feed yet. Try another?")
     }
     url := req["podcast"][0]
-    if store.NumItems(url) <= 0 {
+    if !store.Contains(url) {
         return errHandler(w, "We don't have that feed yet. Try another?")
     }
     items, err := store.Get(url, 0, nItems)
@@ -190,9 +190,7 @@ func buildHandler(w http.ResponseWriter, r *http.Request) error {
         return errHandler(w, "need a URL to try to build a feed")
     }
     url := req["url"][0]
-    // TODO really should have an existence test for url
-    nItems := store.NumItems(url)
-    if nItems != 0 {
+    if store.Contains(url) {
         // tell them it already exists, encourage them to sign up
         return errHandler(w, "TODO: feed exists. give it to user")
     }
@@ -289,7 +287,7 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
         return errHandler(w, "not enough params (need url, start, and sched)")
     }
     url := req["url"][0]
-    if store.NumItems(url) <= 0 {
+    if !store.Contains(url) {
         return errHandler(w, url + " is not in the store")
     }
 

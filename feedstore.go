@@ -35,6 +35,10 @@ type Store interface {
 	SetInfo(url string, key string, val string) error
     // Return a struct that satisfies the `Feed` interface but is backed by us
     FeedFor(url string, ds *DateSource) (Feed, error)
+    // Check if we have a url stored
+    Contains(url string) bool
+    // List out the urls we have stored
+    List() []string
 }
 
 /* The `jsonStore` is a directory, with subdirectories that are the GUID for the
@@ -186,19 +190,48 @@ func (s *jsonStore) indexForHash(hash string) (Index, error) {
     return ind, nil
 }
 
+func (s *jsonStore) Contains(url string) bool {
+    _, err := s.indexFor(url)
+    if err != nil {
+        return false
+    }
+    return true
+}
+
+func (s *jsonStore) List() []string {
+    root, err := os.Open(s.rootdir)
+    if err != nil {
+        return nil
+    }
+    defer root.Close()
+    hashes, err := root.Readdirnames(0)
+    if err != nil {
+        return nil
+    }
+
+    retval := []string{}
+    for _, hash := range hashes {
+        ind, err := s.indexForHash(hash)
+        if err != nil {
+            continue
+        }
+        retval = append(retval, ind.Url)
+    }
+    return retval
+}
+
 func (s *jsonStore) CreateIndex(url string) (Index, error) {
     url, err := s.canon(url)
     if err != nil {
         return Index{}, err
     }
-    hash := s.key(url)
-    _, err = s.indexFor(url)
-    if err == nil {
+    if s.Contains(url) {
         return Index{}, errors.New("Index already exists")
     }
 
     ind := Index{}
     ind.Url = url
+    hash := s.key(url)
     parent, err := s.indexForHash(hash)
     if err == nil {
         // there is a collision

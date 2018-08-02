@@ -83,7 +83,7 @@ func main() {
     }
 
     for _, url := range(urls) {
-        if store.NumItems(url) > 0 {
+        if store.Contains(url) {
             log.WithFields(log.Fields{
                 "url": url,
             }).Warn("URL already initialized. Skipping.")
