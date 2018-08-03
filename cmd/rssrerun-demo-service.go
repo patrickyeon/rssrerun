@@ -52,14 +52,29 @@ var LogFile string
 var LogVerbose bool
 var LogQuiet bool
 
-func templateOrErr(w http.ResponseWriter, name string, data interface{}) error {
+func templateOrErr(w http.ResponseWriter, name string, data interface{}) httpError {
+    var retval httpError
     err := templates.ExecuteTemplate(w, name, data)
     if err != nil {
-        errHandler(w, err.Error())
+        retval = httpErr(http.StatusInternalServerError, err)
+        errHandler(w, retval)
         fmt.Print(err.Error())
     }
     // feel free to ignore this
-    return err
+    return retval
+}
+
+func jsonOrErr(w http.ResponseWriter, status int, dat interface{}) httpError {
+    var retval httpError
+    msg, err := json.Marshal(dat)
+    if err != nil {
+        retval = httpErr(http.StatusInternalServerError, err)
+        errHandler(w, retval)
+    } else {
+        w.WriteHeader(status)
+        w.Write(msg)
+    }
+    return retval
 }
 
 func titleish(item rssrerun.Item) string {
@@ -84,8 +99,32 @@ func titleish(item rssrerun.Item) string {
     return titletxt
 }
 
+type httpError interface {
+    Status() int
+    Error() string
+}
+
+type _httpError struct {
+    status int
+    err error
+}
+
+func httpMsg(status int, msg string) httpError {
+    return &_httpError{status, errors.New(msg)}
+}
+func httpErr(status int, err error) httpError {
+    return &_httpError{status, err}
+}
+
+func (e *_httpError) Error() string {
+    return e.err.Error()
+}
+func (e *_httpError) Status() int {
+    return e.status
+}
+
 type handlerFunc func(http.ResponseWriter, *http.Request)
-type handlerFuncErr func(http.ResponseWriter, *http.Request)error
+type handlerFuncErr func(http.ResponseWriter, *http.Request)httpError
 
 func createHandler(name string, fn handlerFuncErr) handlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +144,7 @@ func createHandler(name string, fn handlerFuncErr) handlerFunc {
                 "id": id,
                 "elapsed": time.Since(tstart).Seconds(),
                 "error": err.Error(),
+                "status": err.Status(),
             }).Warn("Request failed")
         } else {
             log.WithFields(log.Fields{
@@ -115,11 +155,11 @@ func createHandler(name string, fn handlerFuncErr) handlerFunc {
     }
 }
 
-func homeHandler(w http.ResponseWriter, r *http.Request) error {
+func homeHandler(w http.ResponseWriter, r *http.Request) httpError {
     return templateOrErr(w, "about.html", nil)
 }
 
-func previewHandler(w http.ResponseWriter, r *http.Request) error {
+func previewHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     sched := []time.Weekday{}
     intsched := ""
@@ -136,19 +176,22 @@ func previewHandler(w http.ResponseWriter, r *http.Request) error {
     ds := rssrerun.NewDateSource(startdate, sched)
     nItems := ds.DatesInRange(startdate, time.Now())
     if nItems == 0 {
-        return errHandler(w, "Need at least one day in your schedule.")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "Need at least one day in your schedule."))
     }
 
     if req["podcast"] == nil {
-        return errHandler(w, "We don't have that feed yet. Try another?")
+        return errHandler(w, httpMsg(http.StatusNotFound,
+                                     "We don't have that feed yet. Try another?"))
     }
     url := req["podcast"][0]
     if !store.Contains(url) {
-        return errHandler(w, "We don't have that feed yet. Try another?")
+        return errHandler(w, httpMsg(http.StatusNotFound,
+                                     "We don't have that feed yet. Try another?"))
     }
     items, err := store.Get(url, 0, nItems)
     if err != nil {
-        return errHandler(w, err.Error())
+        return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
     // fake out the pubdates on those items
     oldDates := make([]time.Time, len(items))
@@ -181,27 +224,29 @@ func previewHandler(w http.ResponseWriter, r *http.Request) error {
     return templateOrErr(w, "preview.html", dat)
 }
 
-func buildHandler(w http.ResponseWriter, r *http.Request) error {
+func buildHandler(w http.ResponseWriter, r *http.Request) httpError {
     type buildDat struct {
         ApiStub, Url string
     }
     req := r.URL.Query()
     if req["url"] == nil {
-        return errHandler(w, "need a URL to try to build a feed")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "need a URL to try to build a feed"))
     }
     url := req["url"][0]
     if store.Contains(url) {
         // tell them it already exists, encourage them to sign up
-        return errHandler(w, "TODO: feed exists. give it to user")
+        return errHandler(w, httpMsg(http.StatusInternalServerError,
+                                     "TODO: feed exists. give it to user"))
     }
     dat := buildDat{"/fetch?url=", url}
     return templateOrErr(w, "build.html", dat)
 }
 
-func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
+func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     if req["url"] == nil {
-        return errJsonHandler(w, map[string]string{
+        return jsonOrErr(w, http.StatusBadRequest, map[string]string{
             "err": "badurl",
             "msg": "no URL provided to build a feed",
         })
@@ -210,11 +255,13 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
     _, err := store.CreateIndex(url)
     if err != nil {
         // tell them it already exists, encourage them to sign up
-        return errJsonHandler(w, map[string]string{"err": "feedexists"})
+        return jsonOrErr(w, http.StatusBadRequest,
+                         map[string]string{"err": "feedexists"})
     }
     err = store.SetInfo(url, "grade", gradeNames[building])
     if err != nil {
-        return errHandler(w, "TODO: error setting grade=building?")
+        return errHandler(w, httpMsg(http.StatusInternalServerError,
+                                     "TODO: error setting grade=building?"))
     }
     caution := ""
     fn, err := rssrerun.SelectFeedFetcher(url)
@@ -228,7 +275,8 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
         gradename = gradeNames[autoSuspect]
     } else if err != nil {
         _ = store.SetInfo(url, "grade", gradeNames[failed])
-        return errJsonHandler(w, map[string]string{
+        return jsonOrErr(w, http.StatusInternalServerError,
+                         map[string]string{
             "err": "rerunerr",
             "msg": err.Error(),
         })
@@ -236,7 +284,8 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
     feed, err := fn(url)
     if err != nil {
         _ = store.SetInfo(url, "grade", gradeNames[failed])
-        return errJsonHandler(w, map[string]string{
+        return jsonOrErr(w, http.StatusInternalServerError,
+                         map[string]string{
             "err": "rerunerr",
             "msg": err.Error(),
         })
@@ -249,7 +298,8 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
     store.Update(url, revFeed)
     if nItems < 2 {
         _ = store.SetInfo(url, "grade", gradeNames[autoSuspect])
-        return errJsonHandler(w, map[string]string{
+        return jsonOrErr(w, http.StatusInternalServerError,
+                         map[string]string{
             "err": "rerunerr",
             "msg": "that feed, as rebuilt, looks broken.",
         })
@@ -257,17 +307,13 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) error {
     _ = store.SetInfo(url, "grade", gradename)
     first := renderToMap(feed.Item(nItems - 1).Render())
     last := renderToMap(feed.Item(0).Render())
-    err = json.NewEncoder(w).Encode(map[string]interface{}{
+    return jsonOrErr(w, http.StatusOK, map[string]interface{}{
         "nItems": nItems,
         "first": first,
         "last": last,
         "url": url,
         "caution": caution,
     })
-    if err != nil {
-        err = errHandler(w, err.Error())
-    }
-    return err
 }
 
 func renderToMap(item rssrerun.RenderItem) map[string]string {
@@ -281,19 +327,22 @@ func renderToMap(item rssrerun.RenderItem) map[string]string {
     }
 }
 
-func feedHandler(w http.ResponseWriter, r *http.Request) error {
+func feedHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     if req["url"] == nil || req["start"] == nil || req["sched"] == nil {
-        return errHandler(w, "not enough params (need url, start, and sched)")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "not enough params (need url, start, and sched)"))
     }
     url := req["url"][0]
     if !store.Contains(url) {
-        return errHandler(w, url + " is not in the store")
+        return errHandler(w, httpMsg(http.StatusNotFound,
+                                     url + " is not in the store"))
     }
 
     start, err := time.Parse("20060102", req["start"][0])
     if err != nil {
-        return errHandler(w, "invalid date passed as start")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "invalid date passed as start"))
     }
 
     dates := strings.Split(req["sched"][0], "")
@@ -323,16 +372,12 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
         items, err = store.Get(url, 0, nItems)
     }
     if err != nil {
-        return errHandler(w, err.Error())
+        return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
 
     // mangle the pubdates
-    for i, it := range(items) {
+    for _, it := range(items) {
         nd, _ := ds.NextDate()
-        if i < 0 || i >= len(items) {
-            return errHandler(w, "invalid i: " + strconv.Itoa(i) +
-                              " len(items): " + strconv.Itoa(len(items)))
-        }
         it.SetPubDate(nd)
     }
 
@@ -340,7 +385,7 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
     w.Header().Add("Content-Type", "text/xml")
     wrapstr, err := store.GetInfo(url, "wrapper")
     if err != nil {
-        return errHandler(w, err.Error())
+        return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
     wrap := []byte(wrapstr)
     //  some feeds have an <itunes:new-feed-url> tag to act as a redirect. We
@@ -348,7 +393,7 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
     // overruled by a redirect.
     doc, err := gokogiri.ParseXml(wrap)
     if err != nil {
-        return errHandler(w, err.Error())
+        return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
     xp := doc.DocXPathCtx()
     for _, ns := range doc.Root().DeclaredNamespaces() {
@@ -384,15 +429,16 @@ func feedHandler(w http.ResponseWriter, r *http.Request) error {
     return nil
 }
 
-func gradeApiHandler(w http.ResponseWriter, r *http.Request) error {
+func gradeApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     if req["url"] == nil || req["grade"] == nil {
-        return errHandler(w, "not enough params (need url, grade)")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "not enough params (need url, grade)"))
     }
     url := req["url"][0]
     prev, err := store.GetInfo(url, "grade")
     if err != nil {
-        return errHandler(w, err.Error())
+        return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
     valid := false
     // TODO all of this grading really needs to be organized properly
@@ -403,7 +449,8 @@ func gradeApiHandler(w http.ResponseWriter, r *http.Request) error {
         }
     }
     if !valid {
-        return errHandler(w, "trying to override non-user grade")
+        return errHandler(w, httpMsg(http.StatusUnauthorized,
+                                     "trying to override non-user grade"))
     }
     grade := req["grade"][0]
     switch(grade) {
@@ -414,24 +461,17 @@ func gradeApiHandler(w http.ResponseWriter, r *http.Request) error {
         store.SetInfo(url, "grade", grade)
         break
     default:
-        return errHandler(w, "trying to set a non-user or invalid grade")
+        return errHandler(w, httpMsg(http.StatusBadRequest,
+                                     "trying to set a non-user or invalid grade"))
     }
 
-    fmt.Fprintf(w, "ok")
-    return nil
+    return jsonOrErr(w, 200, map[string]string{"status": "ok"})
 }
 
-func errHandler(w http.ResponseWriter, msg string) error {
+func errHandler(w http.ResponseWriter, err httpError) httpError {
+    w.WriteHeader(err.Status())
     fmt.Fprintf(w, "<html><head><title>broken</title></head>")
-    fmt.Fprintf(w, "<body>%s</body></html>", msg)
-    return errors.New(msg)
-}
-
-func errJsonHandler(w http.ResponseWriter, dat map[string]string) error {
-    err := json.NewEncoder(w).Encode(dat)
-    if err != nil {
-        errHandler(w, err.Error())
-    }
+    fmt.Fprintf(w, "<body>%s</body></html>", err.Error())
     return err
 }
 
