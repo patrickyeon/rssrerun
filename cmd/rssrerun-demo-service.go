@@ -6,6 +6,7 @@ import (
     "fmt"
     "html/template"
     "math/rand"
+    "net"
     "net/http"
     neturl "net/url"
     "os"
@@ -51,6 +52,7 @@ var gradeNames = []string{"failed", "building", "admin-bad", "user-vbad",
 var LogFile string
 var LogVerbose bool
 var LogQuiet bool
+var BlackholeEnabled bool
 
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) httpError {
     var retval httpError
@@ -101,12 +103,58 @@ func (e *_httpError) Status() int {
     return e.status
 }
 
+var _blackhole = make(map[string]time.Time)
+
+func isBlackholed(addr string) bool {
+    host, _, _ := net.SplitHostPort(addr)
+    if expires, banned := _blackhole[host]; banned {
+        if expires.Before(time.Now()) {
+            delete(_blackhole, host)
+            return false
+        }
+        return true
+    }
+    return false
+}
+
+var _blackholeTracker = make(map[string]([]time.Time))
+func blackholeKick(addr string) {
+    const maxHits = 10
+    const timeWindow = (15 * time.Second)
+    const coolDown = time.Hour
+    host, _, _ := net.SplitHostPort(addr)
+    record := append(_blackholeTracker[host], time.Now())
+    if len(record) >= maxHits {
+        for i := len(record) - 2; i >= 0; i-- {
+            if time.Since(record[i]) > timeWindow {
+                record = record[i + 1:]
+                break
+            }
+        }
+        if len(record) >= maxHits && time.Since(record[0]) <= timeWindow {
+            _blackhole[host] = time.Now().Add(coolDown)
+            log.WithFields(log.Fields{"address": host}).Info("blackholed host")
+        }
+    }
+    _blackholeTracker[host] = record
+}
+
+func blackhole(w http.ResponseWriter) {
+    w.WriteHeader(http.StatusForbidden)
+    fmt.Fprint(w, "You've been flagged for causing too many errors too quickly. ")
+    fmt.Fprint(w, "Please wait an hour before trying again")
+}
+
 type handlerFunc func(http.ResponseWriter, *http.Request)
 type handlerFuncErr func(http.ResponseWriter, *http.Request)httpError
 
 func createHandler(name string, fn handlerFuncErr) handlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         tstart := time.Now()
+        if BlackholeEnabled && isBlackholed(r.RemoteAddr) {
+            blackhole(w)
+            return
+        }
         id := rand.Int()
         log.WithFields(log.Fields{
             "handlerFunc": name,
@@ -124,6 +172,9 @@ func createHandler(name string, fn handlerFuncErr) handlerFunc {
                 "error": err.Error(),
                 "status": err.Status(),
             }).Warn("Request failed")
+            if BlackholeEnabled {
+                blackholeKick(r.RemoteAddr)
+            }
         } else {
             log.WithFields(log.Fields{
                 "id": id,
@@ -457,6 +508,7 @@ func init() {
     flag.BoolVar(&LogVerbose, "v", false, "Report info, warn, errors")
     flag.BoolVar(&LogQuiet, "q", false, "Only report errors")
     flag.StringVar(&LogFile, "logfile", "", "File to append logs into")
+    flag.BoolVar(&BlackholeEnabled, "blackhole", false, "fail2ban-like protection")
 }
 
 func main() {
