@@ -82,9 +82,17 @@ func (item *RssItem) Node() xml.Node {
 
 func (item *RssItem) Render() RenderItem {
     pubDate, _ := item.PubDate()
+
+    titletxt := tryContent(item.Node(), "title")
+    if len(titletxt) == 0 {
+        titletxt = tryContent(item.Node(), "description")
+        if len(titletxt) > 150 {
+            titletxt = titletxt[0:147] + "..."
+        }
+    }
     return RenderItem{
         pubDate.Format("2006-02-01"),
-        titleish(item),
+        titletxt,
         tryContent(item.src, "description"),
         tryContent(item.src, "guid"),
         tryContent(item.src, "link"),
@@ -224,17 +232,4 @@ func tryAttr(node xml.Node, tagname string, attr string) string {
         }
     }
     return ""
-}
-
-func titleish(item Item) string {
-    // FIXME this is rss-centric right this moment
-    titletxt := tryContent(item.Node(), "title")
-    if len(titletxt) > 0 {
-        return titletxt
-    }
-    titletxt = tryContent(item.Node(), "description")
-    if len(titletxt) > 150 {
-        titletxt = titletxt[0:147] + "..."
-    }
-    return titletxt
 }

@@ -77,28 +77,6 @@ func jsonOrErr(w http.ResponseWriter, status int, dat interface{}) httpError {
     return retval
 }
 
-func titleish(item rssrerun.Item) string {
-    var titletxt string
-    title, err := item.Node().Search("title")
-    if err != nil || len(title) == 0 {
-        title, err = item.Node().Search("description")
-        if err != nil || len(title) == 0 {
-            // something there should have succeeded, but tough luck
-            titletxt = "(no title found)"
-        } else {
-            titletxt = title[0].Content()
-        }
-    } else {
-        titletxt = title[0].Content()
-    }
-    if len(titletxt) > 150 {
-        titletxt = titletxt[0:147] + "..."
-    } else if len(titletxt) == 0 {
-        titletxt = "(no title found)"
-    }
-    return titletxt
-}
-
 type httpError interface {
     Status() int
     Error() string
@@ -208,7 +186,7 @@ func previewHandler(w http.ResponseWriter, r *http.Request) httpError {
     for i, it := range items {
         date, _ := it.PubDate()
         guid, _ := it.Guid()
-        ret[nItems - i - 1] = lnk{titleish(it), guid,
+        ret[nItems - i - 1] = lnk{it.Render().Title, guid,
                                   date.Format("Mon Jan 2 2006"),
                                   oldDates[i].Format("Mon Jan 2 2006")}
     }
