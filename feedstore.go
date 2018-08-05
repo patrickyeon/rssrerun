@@ -151,6 +151,7 @@ func (s *jsonStore) indexFor(url string) (Index, error) {
     if err != nil {
         return Index{}, err
     }
+    defer offsets.Close()
     dat, err := ioutil.ReadAll(offsets)
     if err != nil {
         return Index{}, err
@@ -168,17 +169,18 @@ func (s *jsonStore) indexForHash(hash string) (Index, error) {
     if err != nil {
         return Index{}, err
     }
+    defer index.Close()
     dat, err := ioutil.ReadAll(index)
     if err != nil {
         return Index{}, err
     }
     ind := Index{}
     json.Unmarshal(dat, &ind)
-    index.Close()
     offsets, err := os.Open(fileof(s, ind, -2))
     if err != nil {
         return Index{}, err
     }
+    defer offsets.Close()
     dat, err = ioutil.ReadAll(offsets)
     if err != nil {
         return Index{}, err
@@ -284,8 +286,8 @@ func (s *jsonStore) getInd(index Index, start int, end int) ([]Item, error) {
             if err != nil {
                 return nil, err
             }
+            defer f.Close()
             ftxt, err = ioutil.ReadAll(f)
-            f.Close()
             if err != nil {
                 return nil, err
             }
@@ -351,11 +353,12 @@ func (s *jsonStore) Update(url string, items []Item) error {
     }
     // FIXME will this lead to trying to open the index? Why doesn't it?
     lastind := ind.Count - 1
-    _, err = os.OpenFile(fileof(s, ind, -2),
-                                   os.O_APPEND | os.O_WRONLY, os.ModePerm)
+    idx, err := os.OpenFile(fileof(s, ind, -2),
+                            os.O_APPEND | os.O_WRONLY, os.ModePerm)
     if err != nil {
         return err
     }
+    idx.Close()
     storefile, err := os.OpenFile(fileof(s, ind, lastind),
                                   os.O_APPEND | os.O_WRONLY, os.ModePerm)
     if os.IsNotExist(err) {
@@ -376,6 +379,7 @@ func (s *jsonStore) Update(url string, items []Item) error {
     for _, it := range items {
         guid, err := it.Guid()
         if err != nil {
+            storefile.Close()
             return err
         }
         if _, found := guids[guid]; found {

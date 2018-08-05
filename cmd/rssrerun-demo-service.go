@@ -32,22 +32,18 @@ var store = rssrerun.NewJSONStore("data/stores/podcasts/")
 var CautionNoFetcher = "No auto-builder known. Just using live feed."
 var CautionSketchyFetcher = "Best-guess auto-builder, but it might not be great."
 
-type feedGrade int
 const (
-    failed feedGrade = iota
-    building
-    adminBad
-    userVbad
-    userBad
-    userGood
-    userPerfect
-    autoSuspect
-    autoTrusted
-    adminGood
+    gradeFailed = "failed"
+    gradeBuilding = "buildind"
+    gradeAdminBad = "admin-bad"
+    gradeUserVbad = "user-vbad"
+    gradeUserBad = "user-bad"
+    gradeUserGood = "user-good"
+    gradeUserPerfect = "user-perfect"
+    gradeAutoSuspect = "auto-suspect"
+    gradeAutoTrusted = "auto-trusted"
+    gradeAdminGood = "admin-good"
 )
-var gradeNames = []string{"failed", "building", "admin-bad", "user-vbad",
-                          "user-bad", "user-good", "user-perfect",
-                          "auto-suspect", "auto-trusted", "admin-good"}
 
 var LogFile string
 var LogVerbose bool
@@ -287,23 +283,23 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
         return jsonOrErr(w, http.StatusBadRequest,
                          map[string]string{"err": "feedexists"})
     }
-    err = store.SetInfo(url, "grade", gradeNames[building])
+    err = store.SetInfo(url, "grade", gradeBuilding)
     if err != nil {
         return errHandler(w, httpMsg(http.StatusInternalServerError,
                                      "TODO: error setting grade=building?"))
     }
     caution := ""
     fn, err := rssrerun.SelectFeedFetcher(url)
-    gradename := gradeNames[autoTrusted]
+    gradename := gradeAutoTrusted
     if err == rssrerun.FetcherDetectFailed {
         fn = rssrerun.FeedFromUrl
         caution = CautionNoFetcher
-        gradename = gradeNames[autoSuspect]
+        gradename = gradeAutoSuspect
     } else if err == rssrerun.FetcherDetectUntrusted {
         caution = CautionSketchyFetcher
-        gradename = gradeNames[autoSuspect]
+        gradename = gradeAutoSuspect
     } else if err != nil {
-        _ = store.SetInfo(url, "grade", gradeNames[failed])
+        _ = store.SetInfo(url, "grade", gradeFailed)
         return jsonOrErr(w, http.StatusInternalServerError,
                          map[string]string{
             "err": "rerunerr",
@@ -312,7 +308,7 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     }
     feed, err := fn(url)
     if err != nil {
-        _ = store.SetInfo(url, "grade", gradeNames[failed])
+        _ = store.SetInfo(url, "grade", gradeFailed)
         return jsonOrErr(w, http.StatusInternalServerError,
                          map[string]string{
             "err": "rerunerr",
@@ -326,7 +322,7 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     }
     store.Update(url, revFeed)
     if nItems < 2 {
-        _ = store.SetInfo(url, "grade", gradeNames[autoSuspect])
+        _ = store.SetInfo(url, "grade", gradeAutoSuspect)
         return jsonOrErr(w, http.StatusInternalServerError,
                          map[string]string{
             "err": "rerunerr",
@@ -342,6 +338,7 @@ func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
         "last": last,
         "url": url,
         "caution": caution,
+        "askgrade": (gradename != gradeAutoTrusted),
     })
 }
 
@@ -470,8 +467,9 @@ func gradeApiHandler(w http.ResponseWriter, r *http.Request) httpError {
         return errHandler(w, httpErr(http.StatusInternalServerError, err))
     }
     valid := false
-    // TODO all of this grading really needs to be organized properly
-    for _, g := range gradeNames[userVbad:autoSuspect + 1] {
+    userGrades := []string{gradeUserVbad, gradeUserBad,
+                           gradeUserGood, gradeUserPerfect}
+    for _, g := range append(userGrades, gradeAutoSuspect) {
         if prev == g {
             valid = true
             break
@@ -482,19 +480,14 @@ func gradeApiHandler(w http.ResponseWriter, r *http.Request) httpError {
                                      "trying to override non-user grade"))
     }
     grade := req["grade"][0]
-    switch(grade) {
-    case gradeNames[userVbad]:
-    case gradeNames[userBad]:
-    case gradeNames[userGood]:
-    case gradeNames[userPerfect]:
-        store.SetInfo(url, "grade", grade)
-        break
-    default:
-        return errHandler(w, httpMsg(http.StatusBadRequest,
-                                     "trying to set a non-user or invalid grade"))
+    for _, g := range userGrades {
+        if grade == g {
+            store.SetInfo(url, "grade", grade)
+            return jsonOrErr(w, 200, map[string]string{"status": "ok"})
+        }
     }
-
-    return jsonOrErr(w, 200, map[string]string{"status": "ok"})
+    return errHandler(w, httpMsg(http.StatusBadRequest,
+                                 "trying to set a non-user or invalid grade"))
 }
 
 func errHandler(w http.ResponseWriter, err httpError) httpError {
