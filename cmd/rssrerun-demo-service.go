@@ -21,9 +21,8 @@ import (
     "github.com/patrickyeon/rssrerun"
 )
 
-var templates = template.Must(template.ParseFiles("public/about.html",
-                                                  "public/build.html",
-                                                  "public/preview.html"))
+var templateSources = []string{"about.html", "build.html", "preview.html"}
+var templates  = make(map[string]*template.Template)
 var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
                               time.Wednesday, time.Thursday, time.Friday,
                               time.Saturday}
@@ -49,10 +48,39 @@ var LogFile string
 var LogVerbose bool
 var LogQuiet bool
 var BlackholeEnabled bool
+var WatchDelay int
+
+func templateWatcher() {
+    timestamps := make(map[string]time.Time)
+    for _, fn := range templateSources {
+        info, _ := os.Stat("public/" + fn)
+        timestamps[fn] = info.ModTime()
+    }
+
+    for true {
+        time.Sleep(time.Duration(WatchDelay) * time.Second)
+        for _, fn := range templateSources {
+            info, err := os.Stat("public/" + fn)
+            if err != nil {
+                continue
+            }
+            if info.ModTime().After(timestamps[fn]) {
+                attempt, err := template.ParseFiles("public/" + fn)
+                if err != nil {
+                    fmt.Printf("Error parsing %s: %s\n", fn, err)
+                } else {
+                    templates[fn] = attempt
+                    fmt.Printf("Reloaded template: %s\n", fn)
+                }
+                timestamps[fn] = info.ModTime()
+            }
+        }
+    }
+}
 
 func templateOrErr(w http.ResponseWriter, name string, data interface{}) httpError {
     var retval httpError
-    err := templates.ExecuteTemplate(w, name, data)
+    err := templates[name].Execute(w, data)
     if err != nil {
         retval = httpErr(http.StatusInternalServerError, err)
         errHandler(w, retval)
@@ -498,10 +526,15 @@ func errHandler(w http.ResponseWriter, err httpError) httpError {
 }
 
 func init() {
+    for _, fn := range templateSources {
+        templates[fn] = template.Must(template.ParseFiles("public/" + fn))
+    }
+
     flag.BoolVar(&LogVerbose, "v", false, "Report info, warn, errors")
     flag.BoolVar(&LogQuiet, "q", false, "Only report errors")
     flag.StringVar(&LogFile, "logfile", "", "File to append logs into")
     flag.BoolVar(&BlackholeEnabled, "blackhole", false, "fail2ban-like protection")
+    flag.IntVar(&WatchDelay, "watch", 0, "check for template changes")
 }
 
 func main() {
@@ -527,6 +560,10 @@ func main() {
         }
         defer logfd.Close()
         log.AddHook(lfshook.NewHook(logfd, &log.JSONFormatter{}))
+    }
+
+    if WatchDelay > 0 {
+        go templateWatcher()
     }
 
     http.HandleFunc("/", createHandler("home", homeHandler))
