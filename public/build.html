@@ -8,15 +8,18 @@
     fetch({{ .ApiStub }} + encodeURIComponent({{ .Url }})).then(function(response) {
       response.text().then(function(text) {
         var data = JSON.parse(text);
-        ["url", "caution", "nItems"].forEach(function(key) {
+        ["url", "nItems"].forEach(function(key) {
           document.getElementById(key).textContent = data[key];
         });
+        caution = data["caution"].split("\n");
+        if (caution[0] != "") {
+          document.getElementById("cautionTitle").textContent = caution[0];
+          document.getElementById("cautionMsg").textContent = "".concat(...caution.slice(1));
+          document.getElementById("cautionBox").hidden = false;
+        }
         document.getElementById("url").setAttribute("href", data["url"]);
         document.getElementById("working").textContent = "Done!";
         document.getElementById("working").hidden = true;
-        if (data["caution"] != "") {
-          document.getElementById("caution").hidden = false;
-        }
         ["first", "last"].forEach(function(item) {
           render = data[item];
           element = document.getElementById(item);
@@ -35,7 +38,7 @@
     });
 
     function gradeFeed(grade) {
-      url = "/grade?url=" + encodeURIComponent({{ .Url }}) + "&grade=" + grade;
+      url = "/api/grade?url=" + encodeURIComponent({{ .Url }}) + "&grade=" + grade;
       fetch(url).then(function(response) {
         var gradebox = document.getElementById("gradeMe");
         var buttons = gradebox.getElementsByClassName("button");
@@ -47,9 +50,12 @@
     }
   </script>
 
-  <h1>Here's a janky attempt to build you a feed. Think it worked?</h1>
-  <p id="working">Working...</p>
-  <p><span id="caution" class="alert" hidden>you shouldn't see this</span></p>
+  <h1>Attempting to build feed, TODO: place name here.</h1>
+  <div id="cautionBox" class="alert" hidden>
+    <span id="cautionTitle">you shouldn't see this</span>
+    <br /><span id="cautionMsg">you shouldn't see this</span>
+  </div>
+  <div id="working">Working...</div>
   <a id="url"></a>
   <div id="results" hidden>
     <p> <span id="nItems"></span> items were found while building that feed. The
@@ -73,12 +79,13 @@
     </div>
     <div id="gradeMe" hidden>
       <p>How well did the feed generation do?</p>
-      <span class="button" style="background-color:#f1948a;" onclick="gradeFeed('user-vbad')">Horrible (useless)</span>
-      <span class="button" style="background-color:#e59866;" onclick="gradeFeed('user-bad')">Bad (but thanks for trying)</span>
-      <span class="button" style="background-color:#f7dc6f;" onclick="gradeFeed('user-good')">Good (but missing something)</span>
-      <span class="button" style="background-color:#7dcea0;" onclick="gradeFeed('user-perfect')">Perfect</span>
+      <span class="button" style="background-color:#f1948a; cursor:pointer;" onmouseover="" onclick="gradeFeed('user-vbad')">Horrible (useless)</span>
+      <span class="button" style="background-color:#e59866; cursor:pointer;" onmouseover="" onclick="gradeFeed('user-bad')">Bad (but thanks for trying)</span>
+      <span class="button" style="background-color:#f7dc6f; cursor:pointer;" onmouseover="" onclick="gradeFeed('user-good')">Good (but missing something)</span>
+      <span class="button" style="background-color:#7dcea0; cursor:pointer;" onmouseover="" onclick="gradeFeed('user-perfect')">Perfect</span>
       <span class="thanks" hidden>Thanks for your feedback!</span>
     </div>
   </div>
+
 </body>
 </html>

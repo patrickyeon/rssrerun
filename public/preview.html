@@ -1,8 +1,14 @@
 <html>
 <head>
   <title>{{ .Title }}</title>
+  <link rel="stylesheet" href="static/main.css">
 </head>
 <body>
+
+  <div class="alert" id="cautionBox" hidden>
+    <span id="cautionTitle"></span>
+    <br /><span id="cautionMsg"></span>
+  </div>
   <h1>{{ .Title }}</h1>
   <p>Here's the rerun for <a href="{{ .Url }}">{{ .Url }}</a>
   , on a {{ .Weekdays }} schedule, if it started
@@ -14,6 +20,15 @@
         (Originally published {{ .OldDate }})</li>
     {{ end }}
   </ul>
-  [[ footer goes here ]]
+
+<script type="text/javascript">
+  caution = {{.Warning}}.split("\n");
+  if (caution[0] != "") {
+    document.getElementById("cautionTitle").textContent = caution[0];
+    document.getElementById("cautionMsg").textContent = "".concat(...caution.slice(1));
+    document.getElementById("cautionBox").hidden = false;
+  }
+</script>
+
 </body>
 </html>

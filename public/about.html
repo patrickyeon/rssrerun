@@ -11,8 +11,12 @@
 				form.elements[i].checked = check;
 			}
 	}
+
+  function setrss(target) {
+    document.getElementById("targetUrl").value = target;
+  }
 </script>
-<h1>Podcast reruns</h1>
+<h1>Podcast Reruns</h1>
 
 I'm not sure if this is how everybody else listens to podcasts, but I like to subscribe to a bunch, auto-download them to my phone, and then have my listening app always play me the oldest episode. Once I've subscribed to a podcast, it's all automatic from there on out.
 
@@ -20,14 +24,18 @@ This breaks down when I find an older show and want to listen to the back-catalo
 
 <h2>Try it out</h2>
 
-<form action="/preview" method="GET" id="scheduleForm">
-  <select name="podcast">
-    <option value="http://embedded.fm/episodes?format=rss" selected>Embedded.fm</option>
+Paste in the URL of a podcast feed below, and the server will try to build a super-feed with all of the items it has ever had, and from there it will create a re-run for you. Not every podcast can be rebuilt back to its start, but we're working on it.
+
+<form action="/build" method="GET" id="scheduleForm">
+  <input id="targetUrl" name="url" size="80"/><br />
+  Or if you just want an example known to work, try one of these:<br />
+  <select onchange="document.getElementById('targetUrl').value = this.options[this.selectedIndex].value">
+    <option value="" selected></option>
+    <option value="http://embedded.fm/episodes?format=rss">Embedded.fm</option>
     <option value="http://www.theamphour.com/feed/podcast">The Amp Hour</option>
-	<option value="http://feeds.feedburner.com/MakingItWithJimmyDirestaBobClagettAndDavidPicciuto"> Making It with Jimmy Diresta, Bob Clagett, and David Picciuto</option>
-	<option value="http://www.npr.org/rss/podcast.php?id=510289">NPR's Planet Money</option>
-	<option value="http://sciencesortof.libsyn.com/rss">Science, Sort Of</option>
-	<option value="http://feeds.soundcloud.com/users/soundcloud:users:46212671/sounds.rss"> Motorcycles and Misfits</option>
+    <option value="http://feeds.feedburner.com/MakingItWithJimmyDirestaBobClagettAndDavidPicciuto"> Making It with Jimmy Diresta, Bob Clagett, and David Picciuto</option>
+    <option value="http://www.npr.org/rss/podcast.php?id=510289">NPR's Planet Money</option>
+    <option value="http://sciencesortof.libsyn.com/rss">Science, Sort Of</option>
   </select>
   <br />
   Schedule:
@@ -41,14 +49,6 @@ This breaks down when I find an older show and want to listen to the back-catalo
   <input type="checkbox" name="sat" class="day" value=""/>Saturday<br/>
 
   <input type="submit" value="Create Reruns"/>
-</form>
-
-<h2>Request another feed</h2>
-
-Yeah, this is meant to be a general tool, not just those specific feeds. If there's a podcast you'd like to see here, submit it and I can try to build a historical feed. Even if that doesn't work, eventually it hopefully will and I can let you know when it's ready. There's just one of me working on this in my spare time, and I'd like to make sure every feed is handled properly while I develop the ingestors, so it might take some time.
-
-<form action="/build" method="GET" id="buildNewForm">
-  <input name="url"/> <input type="submit" value="Generate!"/>
 </form>
 
 <h2>About rssrerun</h2>

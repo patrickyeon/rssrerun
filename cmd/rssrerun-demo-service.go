@@ -26,14 +26,25 @@ var templates  = make(map[string]*template.Template)
 var weekdays = []time.Weekday{time.Sunday, time.Monday, time.Tuesday,
                               time.Wednesday, time.Thursday, time.Friday,
                               time.Saturday}
+var dayNames = []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 var store = rssrerun.NewJSONStore("data/stores/podcasts/")
 
-var CautionNoFetcher = "No auto-builder known. Just using live feed."
-var CautionSketchyFetcher = "Best-guess auto-builder, but it might not be great."
+var CautionNoFetcher = `No auto-builder known.
+The server did not auto-detect a method to build up the entire history of the
+ feed, and has fallen back to using just the current feed available. This could
+ still work, but it's quite possible that it is missing some of the earlier
+ items.`
+var CautionSketchyFetcher = `Best-guess auto-builder.
+The server has made an attempt to re-build the entire history of the feed, but
+ the method used is known to sometimes have problems. Most likely, if there's an
+ issue, it will be with the earlier items.`
+var CautionQualityIssue = `Potential feed quality issues.
+A user has flagged a quality issue with this feed. Proceed with caution.`
 
 const (
     gradeFailed = "failed"
-    gradeBuilding = "buildind"
+    // FIXME actually check for gradeBuilding so that you don't double up
+    gradeBuilding = "building"
     gradeAdminBad = "admin-bad"
     gradeUserVbad = "user-vbad"
     gradeUserBad = "user-bad"
@@ -217,7 +228,7 @@ func previewHandler(w http.ResponseWriter, r *http.Request) httpError {
     sched := []time.Weekday{}
     intsched := ""
     txtsched := []string{}
-    for i, d := range strings.Split("sun mon tue wed thu fri sat", " ") {
+    for i, d := range dayNames {
         if _, t := req[d]; t {
             sched = append(sched, weekdays[i])
             intsched += strconv.Itoa(i)
@@ -233,11 +244,11 @@ func previewHandler(w http.ResponseWriter, r *http.Request) httpError {
                                      "Need at least one day in your schedule."))
     }
 
-    if req["podcast"] == nil {
+    if req["url"] == nil {
         return errHandler(w, httpMsg(http.StatusNotFound,
                                      "We don't have that feed yet. Try another?"))
     }
-    url := req["podcast"][0]
+    url := req["url"][0]
     if !store.Contains(url) {
         return errHandler(w, httpMsg(http.StatusNotFound,
                                      "We don't have that feed yet. Try another?"))
@@ -267,13 +278,27 @@ func previewHandler(w http.ResponseWriter, r *http.Request) httpError {
     }
 
     type prevDat struct {
-        Title, Url, Weekdays, FeedLink string
+        Title, Url, Weekdays, FeedLink, Warning string
         Items []lnk
     }
-    link := ("/feed?url=" + neturl.PathEscape(url) +
+    warning := ""
+    grade, err := store.GetInfo(url, "grade")
+    if err != nil {
+        log.WithFields(log.Fields{
+            "url": url,
+        }).Error("URL has no grade in store")
+        warning = CautionQualityIssue
+    } else if grade == gradeAutoSuspect {
+        warning = CautionSketchyFetcher
+    } else if (grade == gradeUserVbad || grade == gradeUserBad ||
+               grade == gradeUserGood || grade == gradeAdminBad) {
+        warning = CautionQualityIssue
+    }
+    link := ("/api/feed?url=" + neturl.PathEscape(url) +
              "&start=" + startdate.Format("20060102"))
     link += "&sched=" + intsched
-    dat := prevDat{"Your Podcast", url, strings.Join(txtsched, "/"), link, ret}
+    dat := prevDat{"Your Podcast", url, strings.Join(txtsched, "/"), link,
+                   warning, ret}
     return templateOrErr(w, "preview.html", dat)
 }
 
@@ -288,15 +313,23 @@ func buildHandler(w http.ResponseWriter, r *http.Request) httpError {
     }
     url := req["url"][0]
     if store.Contains(url) {
-        // tell them it already exists, encourage them to sign up
-        return errHandler(w, httpMsg(http.StatusInternalServerError,
-                                     "TODO: feed exists. give it to user"))
+        // 302 them
+        target := "/preview?url=" + neturl.PathEscape(url)
+        for _, day := range dayNames {
+            if req[day] != nil {
+                target += "&" + day + "="
+            }
+        }
+
+        w.Header().Add("Location", target)
+        w.WriteHeader(http.StatusFound)
+        return nil
     }
-    dat := buildDat{"/fetch?url=", url}
+    dat := buildDat{"/api/build?url=", url}
     return templateOrErr(w, "build.html", dat)
 }
 
-func fetchApiHandler(w http.ResponseWriter, r *http.Request) httpError {
+func buildApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     if req["url"] == nil {
         return jsonOrErr(w, http.StatusBadRequest, map[string]string{
@@ -381,7 +414,7 @@ func renderToMap(item rssrerun.RenderItem) map[string]string {
     }
 }
 
-func feedHandler(w http.ResponseWriter, r *http.Request) httpError {
+func feedApiHandler(w http.ResponseWriter, r *http.Request) httpError {
     req := r.URL.Query()
     if req["url"] == nil || req["start"] == nil || req["sched"] == nil {
         return errHandler(w, httpMsg(http.StatusBadRequest,
@@ -569,9 +602,9 @@ func main() {
     http.HandleFunc("/", createHandler("home", homeHandler))
     http.HandleFunc("/preview", createHandler("preview", previewHandler))
     http.HandleFunc("/build", createHandler("build", buildHandler))
-    http.HandleFunc("/feed", createHandler("feed", feedHandler))
-    http.HandleFunc("/fetch", createHandler("fetchApi", fetchApiHandler))
-    http.HandleFunc("/grade", createHandler("gradeApi", gradeApiHandler))
+    http.HandleFunc("/api/feed", createHandler("feedApi", feedApiHandler))
+    http.HandleFunc("/api/build", createHandler("buildApi", buildApiHandler))
+    http.HandleFunc("/api/grade", createHandler("gradeApi", gradeApiHandler))
     http.Handle("/static/", http.FileServer(http.Dir("public")))
     http.ListenAndServe(":8007", nil)
 }
